@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/cron/reminders", "schedule": "* * * * *" },
+    { "path": "/api/cron/escalations", "schedule": "* * * * *" },
+    { "path": "/api/cron/retry", "schedule": "*/5 * * * *" }
+  ]
+}

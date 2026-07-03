@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-cream text-ink antialiased;
+}
+
+@keyframes flash-bg {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(180, 83, 9, 0.12); }
+}
+.new-order-flash {
+  animation: flash-bg 1s ease-in-out 4;
+}
+
+/* Large touch targets on tablets */
+button, a[role="button"] {
+  min-height: 2.5rem;
+}
