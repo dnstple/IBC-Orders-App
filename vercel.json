@@ -1,7 +1,3 @@
 {
-  "crons": [
-    { "path": "/api/cron/reminders", "schedule": "* * * * *" },
-    { "path": "/api/cron/escalations", "schedule": "* * * * *" },
-    { "path": "/api/cron/retry", "schedule": "*/5 * * * *" }
-  ]
+  "_comment": "Vercel Hobby plan only allows daily crons. Minute-level scheduling for /api/cron/reminders, /api/cron/escalations and /api/cron/retry is handled by an external pinger (e.g. cron-job.org) sending 'Authorization: Bearer <CRON_SECRET>'. If you upgrade to Vercel Pro, restore the crons block from docs/deployment.md."
 }
