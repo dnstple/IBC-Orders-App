@@ -423,7 +423,13 @@ async function reconcileReminderJob(
   );
 }
 
-/** Guard: demo/seed orders (fake IDs ≥ 9e11 or 'demo' tag) must never reach Shopify. */
+/**
+ * Guard: demo/seed orders must never reach Shopify.
+ * Seeded orders use IDs in the reserved 900000000000–900000000999 range
+ * plus a 'demo' tag. Real Shopify order IDs are ~8e12, far outside this
+ * range — an open-ended >= check would (and once did) swallow real orders.
+ */
 export function isDemoOrder(order: { shopify_order_id: number; tags: string[] }): boolean {
-  return order.shopify_order_id >= 900000000000 || order.tags.includes('demo');
+  const inSeedRange = order.shopify_order_id >= 900000000000 && order.shopify_order_id < 900000001000;
+  return inSeedRange || order.tags.includes('demo');
 }
