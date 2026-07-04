@@ -206,11 +206,23 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   // always win; otherwise staff progress is preserved.
   let internalStatus: InternalStatus = (existing?.internal_status as InternalStatus) ?? 'new';
   const refunded = o.displayFinancialStatus === 'REFUNDED';
+  // Shopify's ready-for-pickup state lives on the fulfilment order:
+  // a PICK_UP fulfilment order in IN_PROGRESS means it was marked ready
+  // (by this app or directly in Shopify admin).
+  const pickupReadyInShopify = o.fulfillmentOrders.nodes.some(
+    (f) => f.deliveryMethod?.methodType === 'PICK_UP' && f.status === 'IN_PROGRESS'
+  );
   if (o.cancelledAt) internalStatus = refunded ? 'refunded' : 'cancelled';
   else if (refunded) internalStatus = 'refunded';
   else if (o.displayFulfillmentStatus === 'FULFILLED') internalStatus = 'fulfilled';
   else if (internalStatus === 'fulfilled' && o.displayFulfillmentStatus !== 'FULFILLED') {
     // Shopify-side change (e.g. fulfilment cancelled) — reopen for staff.
+    internalStatus = 'acknowledged';
+  } else if (pickupReadyInShopify) {
+    // Ready in Shopify (from either side) → reflect it.
+    internalStatus = 'ready_for_pickup';
+  } else if (internalStatus === 'ready_for_pickup') {
+    // App thought it was ready but Shopify disagrees — never pretend.
     internalStatus = 'acknowledged';
   }
 
