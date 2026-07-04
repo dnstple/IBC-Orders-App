@@ -67,12 +67,14 @@ interface ShopifyFulfillmentOrder {
 }
 
 export interface SyncResult {
-  orderId: string;          // Supabase uuid
+  orderId: string;          // Supabase uuid ('' when deleted)
   orderNumber: string;
   isNew: boolean;
   becamePaid: boolean;      // newly paid → trigger new-order alerts
   isPickup: boolean;
   skippedStale: boolean;
+  /** Order no longer exists in Shopify — it was removed locally too. */
+  deleted: boolean;
   itemCount: number;
 }
 
@@ -180,7 +182,15 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   const db = supabaseAdmin();
   const data = await shopifyGraphql<ShopifyOrderFull>(ORDER_FULL_QUERY, { id: orderGid }, 'OrderFull');
   const o = data.order;
-  if (!o) throw new Error(`Order not found in Shopify: ${orderGid}`);
+  if (!o) {
+    // Deleted in Shopify (deletion is only possible for archived/cancelled
+    // orders). Shopify is the source of truth — remove our copy as well.
+    await db.from('orders').delete().eq('shopify_order_gid', orderGid);
+    return {
+      orderId: '', orderNumber: orderGid, isNew: false, becamePaid: false,
+      isPickup: false, skippedStale: false, deleted: true, itemCount: 0,
+    };
+  }
 
   const { data: existing } = await db
     .from('orders')
@@ -192,7 +202,7 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   if (existing && new Date(o.updatedAt) < new Date(existing.shopify_updated_at)) {
     return {
       orderId: existing.id, orderNumber: o.name, isNew: false,
-      becamePaid: false, isPickup: false, skippedStale: true, itemCount: 0,
+      becamePaid: false, isPickup: false, skippedStale: true, deleted: false, itemCount: 0,
     };
   }
 
@@ -350,7 +360,7 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   return {
     orderId, orderNumber: o.name, isNew, becamePaid,
     isPickup: method === 'pickup',
-    skippedStale: false, itemCount: liRows.length,
+    skippedStale: false, deleted: false, itemCount: liRows.length,
   };
 }
 
