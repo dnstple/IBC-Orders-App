@@ -1,5 +1,5 @@
 import { OrdersBoard } from '@/components/OrdersBoard';
 
 export default function Page() {
-  return <OrdersBoard tab="past" />;
+  return <OrdersBoard tab="today" />;
 }

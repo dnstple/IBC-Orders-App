@@ -3,12 +3,20 @@
 import { useEffect, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 
+interface SyncState {
+  running?: boolean;
+  last_success?: string | null;
+  last_error?: string | null;
+  interval_minutes?: number;
+}
+
 /**
- * Visible sync health: time since the most recent order sync, plus a
- * warning when webhook processing is failing (managers/admins see counts).
+ * Unobtrusive sync health: last successful sync, running state, last error,
+ * failed-webhook count (admins) and a manual refresh. The dashboard keeps
+ * working from cached data if Shopify is temporarily down.
  */
 export function SyncHealth({ canManualSync }: { canManualSync: boolean }) {
-  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [state, setState] = useState<SyncState>({});
   const [failing, setFailing] = useState(0);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -16,9 +24,8 @@ export function SyncHealth({ canManualSync }: { canManualSync: boolean }) {
 
   async function load() {
     const supabase = supabaseBrowser();
-    const { data: latest } = await supabase.from('orders')
-      .select('synced_at').order('synced_at', { ascending: false }).limit(1);
-    if (latest?.[0]) setLastSync(new Date(latest[0].synced_at));
+    const { data } = await supabase.from('app_settings').select('value').eq('key', 'sync_state').maybeSingle();
+    if (data?.value) setState(data.value as SyncState);
     const { count } = await supabase.from('webhook_events')
       .select('id', { count: 'exact', head: true }).eq('status', 'failed');
     setFailing(count ?? 0); // 0 for non-admins (RLS returns no rows)
@@ -42,24 +49,30 @@ export function SyncHealth({ canManualSync }: { canManualSync: boolean }) {
       if (!res.ok || !json) {
         setResult(`Sync failed (${res.status}): ${json?.error ?? 'see server logs'}`);
       } else {
-        setResult(
-          `Synced ${json.synced}, failed ${json.failed}` +
-          (json.errors?.length ? ` — ${json.errors[0]}` : json.synced === 0 ? ' — no matching orders found in Shopify' : '')
-        );
+        setResult(`Synced ${json.synced}, failed ${json.failed}`);
       }
-    } catch (err) {
-      setResult(`Sync error: ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      setResult('Sync error: network problem');
     }
     setBusy(false);
     void load();
   }
 
-  const ago = lastSync ? Math.max(0, Math.round((Date.now() - lastSync.getTime()) / 1000)) : null;
-  const agoLabel = ago == null ? '—' : ago < 60 ? `${ago} seconds ago` : `${Math.round(ago / 60)} min ago`;
+  const last = state.last_success ? new Date(state.last_success) : null;
+  const ago = last ? Math.max(0, Math.round((Date.now() - last.getTime()) / 1000)) : null;
+  const agoLabel = ago == null ? 'never' : ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)} min ago`;
+  const stale = ago != null && ago > Math.max(10, (state.interval_minutes ?? 3) * 3) * 60;
 
   return (
-    <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
-      <span className={ago != null && ago > 900 ? 'text-amber-700' : ''}>Shopify synced {agoLabel}</span>
+    <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
+      <span className={stale ? 'font-medium text-amber-700' : ''}>
+        {state.running ? 'Syncing with Shopify…' : `Shopify synced ${agoLabel}`}
+      </span>
+      {state.last_error && (
+        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-amber-800 ring-1 ring-amber-200" title={state.last_error}>
+          last sync error
+        </span>
+      )}
       {failing > 0 && (
         <span className="rounded-md bg-red-50 px-2 py-0.5 font-medium text-red-700 ring-1 ring-red-200">
           {failing} webhook{failing === 1 ? '' : 's'} failing
@@ -69,15 +82,13 @@ export function SyncHealth({ canManualSync }: { canManualSync: boolean }) {
         <button
           onClick={manualSync}
           disabled={busy}
-          className="rounded-md border border-stone-200 px-2.5 py-1 text-stone-600 hover:border-cocoa-500 disabled:opacity-50"
+          className="min-h-8 rounded-md border border-stone-200 px-2.5 py-1 text-stone-600 hover:border-cocoa-500 disabled:opacity-50"
         >
-          {busy ? 'Syncing…' : 'Sync from Shopify'}
+          {busy ? 'Syncing…' : 'Refresh now'}
         </button>
       )}
       {result && (
-        <span className={result.startsWith('Synced') ? 'text-emerald-700' : 'font-medium text-red-700'}>
-          {result}
-        </span>
+        <span className={result.startsWith('Synced') ? 'text-emerald-700' : 'font-medium text-red-700'}>{result}</span>
       )}
     </div>
   );

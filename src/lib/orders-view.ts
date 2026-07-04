@@ -138,7 +138,7 @@ export function summarise(orders: OrderRow[], now = new Date()): SummaryCounts {
 
 export const STATUS_LABELS: Record<InternalStatus, string> = {
   new: 'New',
-  acknowledged: 'Acknowledged',
+  acknowledged: 'Open',
   preparing: 'Preparing',
   ready_for_pickup: 'Ready for pickup',
   packed: 'Packed',

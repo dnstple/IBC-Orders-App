@@ -45,6 +45,15 @@ export interface OrderRow {
   required_fulfilment_at: string | null;
   time_confirmed: boolean;
   date_source: string;
+  /* Pickup scheduler (ibc_* custom attributes) */
+  pickup_requested: boolean;
+  pickup_date: string | null;          // 'YYYY-MM-DD' London-local
+  pickup_slot_start: string | null;    // ISO instant
+  pickup_slot_end: string | null;
+  pickup_slot_label: string | null;
+  pickup_delay_minutes: number | null;
+  /** London-local day driving Today/Future/Past grouping. */
+  operational_date: string;
   pickup_slot_id: string | null;
   internal_status: InternalStatus;
   acknowledged_at: string | null;
@@ -104,9 +113,22 @@ export interface OrderEventRow {
   created_at: string;
 }
 
+export type StaffRoleAll = 'staff' | 'manager' | 'admin' | 'pending' | 'suspended';
+
+export interface NotificationPrefs {
+  new_pickup: boolean;
+  new_delivery: boolean;
+  pickup_reminders: boolean;
+  status_changes: boolean;
+  sync_errors: boolean;
+}
+
 export interface StaffProfileRow {
   id: string;
   full_name: string;
-  role: 'staff' | 'manager' | 'admin';
+  role: StaffRoleAll;
   is_active: boolean;
+  requested_at?: string;
+  approved_at?: string | null;
+  notification_prefs?: NotificationPrefs;
 }

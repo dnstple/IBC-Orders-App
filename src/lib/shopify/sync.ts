@@ -2,7 +2,8 @@ import { shopifyGraphql, orderAdminUrl } from '@/lib/shopify/client';
 import { ORDER_FULL_QUERY } from '@/lib/shopify/queries';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { audit } from '@/lib/audit';
-import { londonWallTimeToUtc, parseFlexibleDate, parseFlexibleTime } from '@/lib/dates';
+import { londonWallTimeToUtc, londonDateKey, parseFlexibleDate, parseFlexibleTime } from '@/lib/dates';
+import { parsePickupAttrs, type PickupAttrs } from '@/lib/pickup-attrs';
 import type { FulfillmentMethod, InternalStatus } from '@/types/db';
 import { TERMINAL_STATUSES } from '@/types/db';
 
@@ -70,14 +71,17 @@ export interface SyncResult {
   orderNumber: string;
   isNew: boolean;
   becamePaid: boolean;      // newly paid → trigger new-order alerts
+  isPickup: boolean;
   skippedStale: boolean;
   itemCount: number;
 }
 
 const gidToLegacyId = (gid: string) => Number(gid.split('/').pop());
 
-/* ── Fulfilment-method classification from Fulfillment Orders ─────────── */
-function classifyMethod(ffos: ShopifyFulfillmentOrder[]): FulfillmentMethod {
+/* ── Fulfilment-method classification ─────────────────────────────────── */
+function classifyMethod(ffos: ShopifyFulfillmentOrder[], pickupAttrs: PickupAttrs): FulfillmentMethod {
+  // The pickup scheduler is authoritative when present.
+  if (pickupAttrs.requested) return 'pickup';
   const types = new Set(
     ffos.map((f) => f.deliveryMethod?.methodType).filter((t): t is string => !!t)
   );
@@ -87,43 +91,80 @@ function classifyMethod(ffos: ShopifyFulfillmentOrder[]): FulfillmentMethod {
   return 'unknown';
 }
 
-/* ── Required-action date derivation ──────────────────────────────────── */
+/* ── Required-action instant + operational date ───────────────────────── */
 interface DateKeys {
   pickup_date: string[]; pickup_time: string[];
   delivery_date: string[]; delivery_time: string[];
 }
 
-function findAttr(attrs: Array<{ key?: string; name?: string; value: string | null }>, keys: string[]): string | null {
+interface Derived {
+  at: string;              // required_fulfilment_at instant
+  confirmed: boolean;      // false ⇒ "Time TBC"
+  source: string;
+  operationalDate: string; // London 'YYYY-MM-DD'
+}
+
+function findAttr(attrs: Array<{ key: string; value: string | null }>, keys: string[]): string | null {
   const lower = keys.map((k) => k.toLowerCase());
   for (const a of attrs) {
-    const name = (a.key ?? a.name ?? '').toLowerCase();
-    if (lower.includes(name) && a.value) return a.value;
+    if (lower.includes(a.key.toLowerCase()) && a.value) return a.value;
   }
   return null;
 }
 
-function deriveRequiredAt(
+function deriveDates(
   method: FulfillmentMethod,
+  pickup: PickupAttrs,
   attrs: Array<{ key: string; value: string | null }>,
   createdAt: string,
   keys: DateKeys
-): { at: string; confirmed: boolean; source: string } {
+): Derived {
+  // 1. Pickup scheduler slot — highest priority, fully confirmed.
+  if (pickup.requested && pickup.slotStart) {
+    return {
+      at: new Date(pickup.slotStart).toISOString(),
+      confirmed: true,
+      source: 'ibc_slot',
+      // The scheduler writes the London-local date; trust it over any UTC
+      // re-derivation so days never shift across midnight/DST.
+      operationalDate: pickup.date ?? londonDateKey(new Date(pickup.slotStart)),
+    };
+  }
+  // 2. Pickup date without a slot time.
+  if (pickup.requested && pickup.date) {
+    return {
+      at: londonWallTimeToUtc(pickup.date, '00:00').toISOString(),
+      confirmed: false,
+      source: 'ibc_date_only',
+      operationalDate: pickup.date,
+    };
+  }
+
+  // 3. Legacy note-attribute keys (kept for older orders).
   const dateKeys = method === 'pickup' ? keys.pickup_date : keys.delivery_date;
   const timeKeys = method === 'pickup' ? keys.pickup_time : keys.delivery_time;
-
   const rawDate = findAttr(attrs, dateKeys);
   const dateStr = rawDate ? parseFlexibleDate(rawDate) : null;
   if (dateStr) {
     const rawTime = findAttr(attrs, timeKeys);
     const timeStr = rawTime ? parseFlexibleTime(rawTime) : null;
-    if (timeStr) {
-      return { at: londonWallTimeToUtc(dateStr, timeStr).toISOString(), confirmed: true, source: 'note_attribute' };
-    }
-    // Date known, time unknown → grouped on the right day, flagged Time TBC
-    return { at: londonWallTimeToUtc(dateStr, '00:00').toISOString(), confirmed: false, source: 'note_attribute_date_only' };
+    return {
+      at: londonWallTimeToUtc(dateStr, timeStr ?? '00:00').toISOString(),
+      confirmed: Boolean(timeStr),
+      source: timeStr ? 'note_attribute' : 'note_attribute_date_only',
+      operationalDate: dateStr,
+    };
   }
-  // Temporary fallback only — surfaces as "Collection/Delivery time TBC"
-  return { at: createdAt, confirmed: false, source: 'shopify_created' };
+
+  // 4. Fallback: order creation. For delivery this IS the operational date
+  //    (spec: delivery uses order creation date); for pickup it surfaces
+  //    as "Collection time TBC".
+  return {
+    at: createdAt,
+    confirmed: false,
+    source: 'shopify_created',
+    operationalDate: londonDateKey(new Date(createdAt)),
+  };
 }
 
 async function loadDateKeys(): Promise<DateKeys> {
@@ -143,7 +184,7 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
 
   const { data: existing } = await db
     .from('orders')
-    .select('id, shopify_updated_at, internal_status, financial_status, pickup_slot_id, needs_attention, needs_attention_reason, required_fulfilment_at, time_confirmed')
+    .select('id, shopify_updated_at, internal_status, financial_status, pickup_slot_id, needs_attention, needs_attention_reason')
     .eq('shopify_order_gid', o.id)
     .maybeSingle();
 
@@ -151,25 +192,15 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   if (existing && new Date(o.updatedAt) < new Date(existing.shopify_updated_at)) {
     return {
       orderId: existing.id, orderNumber: o.name, isNew: false,
-      becamePaid: false, skippedStale: true, itemCount: 0,
+      becamePaid: false, isPickup: false, skippedStale: true, itemCount: 0,
     };
   }
 
-  const method = classifyMethod(o.fulfillmentOrders.nodes);
+  const attrs = o.customAttributes.map((a) => ({ key: a.key, value: a.value }));
+  const pickupAttrs = parsePickupAttrs(attrs);
+  const method = classifyMethod(o.fulfillmentOrders.nodes, pickupAttrs);
   const keys = await loadDateKeys();
-
-  // Slot (future feature) outranks note attributes.
-  let required = deriveRequiredAt(method, o.customAttributes.map((a) => ({ key: a.key, value: a.value })), o.createdAt, keys);
-  if (existing?.pickup_slot_id) {
-    const { data: slot } = await db.from('pickup_slots').select('slot_date, start_time, is_confirmed').eq('id', existing.pickup_slot_id).maybeSingle();
-    if (slot?.is_confirmed) {
-      required = {
-        at: londonWallTimeToUtc(slot.slot_date, String(slot.start_time).slice(0, 5)).toISOString(),
-        confirmed: true,
-        source: 'pickup_slot',
-      };
-    }
-  }
+  const derived = deriveDates(method, pickupAttrs, attrs, o.createdAt, keys);
 
   // Reconcile internal status with Shopify truth. Shopify-terminal states
   // always win; otherwise staff progress is preserved.
@@ -184,9 +215,9 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   }
 
   const attention =
-    method === 'unknown'
-      ? { flag: true, reason: 'Fulfilment method could not be determined' }
-      : { flag: existing?.needs_attention && existing.needs_attention_reason !== 'Fulfilment method could not be determined' ? existing.needs_attention : false, reason: existing?.needs_attention_reason ?? null };
+    method === 'unknown' && !TERMINAL_STATUSES.includes(internalStatus)
+      ? { flag: true, reason: 'Fulfilment method could not be determined' as string | null }
+      : { flag: false, reason: null as string | null };
 
   const num = (m: MoneyBag | null) => (m ? Number(m.shopMoney.amount) : null);
 
@@ -204,6 +235,7 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
     test: o.test,
     fulfillment_method: method,
     pickup_location: (() => {
+      if (pickupAttrs.location) return { name: pickupAttrs.location };
       const loc = o.fulfillmentOrders.nodes.find((f) => f.deliveryMethod?.methodType === 'PICK_UP')?.assignedLocation;
       return loc ? { name: loc.name, address: [loc.address1, loc.city, loc.zip].filter(Boolean).join(', ') } : null;
     })(),
@@ -212,7 +244,7 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
     customer_email: o.customer?.defaultEmailAddress?.emailAddress ?? o.email,
     customer_phone: o.customer?.defaultPhoneNumber?.phoneNumber ?? o.phone ?? o.shippingAddress?.phone ?? null,
     note: o.note,
-    note_attributes: o.customAttributes.map((a) => ({ name: a.key, value: a.value ?? '' })),
+    note_attributes: attrs.map((a) => ({ name: a.key, value: a.value ?? '' })),
     tags: o.tags,
     discounts: o.discountCodes.map((code) => ({ code, amount: o.totalDiscountsSet?.shopMoney.amount })),
     currency: o.currencyCode,
@@ -221,12 +253,20 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
     tax_total: num(o.totalTaxSet),
     total: num(o.totalPriceSet),
     refund_summary: o.refunds.map((r) => ({ id: r.id, createdAt: r.createdAt, note: r.note, amount: r.totalRefundedSet?.shopMoney.amount })),
-    required_fulfilment_at: required.at,
-    time_confirmed: required.confirmed,
-    date_source: required.source,
+    required_fulfilment_at: derived.at,
+    time_confirmed: derived.confirmed,
+    date_source: derived.source,
+    operational_date: derived.operationalDate,
+    /* Pickup scheduler fields */
+    pickup_requested: pickupAttrs.requested,
+    pickup_date: pickupAttrs.date,
+    pickup_slot_start: pickupAttrs.slotStart ? new Date(pickupAttrs.slotStart).toISOString() : null,
+    pickup_slot_end: pickupAttrs.slotEnd ? new Date(pickupAttrs.slotEnd).toISOString() : null,
+    pickup_slot_label: pickupAttrs.slotLabel,
+    pickup_delay_minutes: pickupAttrs.delayMinutes,
     internal_status: internalStatus,
     needs_attention: attention.flag,
-    needs_attention_reason: attention.flag ? attention.reason : null,
+    needs_attention_reason: attention.reason,
     raw_payload: o as unknown as Record<string, unknown>,
     synced_at: new Date().toISOString(),
   };
@@ -290,12 +330,57 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   if (!isNew) {
     await audit({ orderId, eventType: 'shopify_synced', details: { updatedAt: o.updatedAt, fulfillmentStatus: o.displayFulfillmentStatus } });
   } else {
-    await audit({ orderId, eventType: 'order_received', details: { orderNumber: o.name, method } });
+    await audit({ orderId, eventType: 'order_received', details: { orderNumber: o.name, method, pickupSlot: pickupAttrs.slotLabel } });
   }
 
-  await reconcileReminderJob(orderId, required.at, required.confirmed, internalStatus, method);
+  await reconcileReminderJob(orderId, derived.at, derived.confirmed, internalStatus, method);
 
-  return { orderId, orderNumber: o.name, isNew, becamePaid, skippedStale: false, itemCount: liRows.length };
+  return {
+    orderId, orderNumber: o.name, isNew, becamePaid,
+    isPickup: method === 'pickup',
+    skippedStale: false, itemCount: liRows.length,
+  };
+}
+
+/* ── Incremental reconciliation (auto-resync) ─────────────────────────── */
+export const ORDERS_UPDATED_QUERY = /* GraphQL */ `
+  query OrdersUpdated($first: Int!, $query: String, $after: String) {
+    orders(first: $first, query: $query, after: $after, sortKey: UPDATED_AT) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id updatedAt }
+    }
+  }
+`;
+
+/**
+ * Sync only orders whose Shopify updatedAt is newer than the last successful
+ * reconcile (with overlap), instead of re-fetching history. Idempotent —
+ * the per-order stale guard makes repeats harmless.
+ */
+export async function reconcileUpdatedOrders(sinceIso: string): Promise<{ synced: number; failed: number; errors: string[] }> {
+  const overlap = new Date(new Date(sinceIso).getTime() - 10 * 60000).toISOString();
+  const search = `updated_at:>='${overlap}'`;
+  let synced = 0, failed = 0, cursor: string | null = null;
+  const errors: string[] = [];
+
+  for (let page = 0; page < 4; page++) {
+    const data: {
+      orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: Array<{ id: string }> };
+    } = await shopifyGraphql(ORDERS_UPDATED_QUERY, { first: 50, query: search, after: cursor }, 'OrdersUpdated');
+
+    for (const node of data.orders.nodes) {
+      try {
+        await syncOrderFromShopify(node.id);
+        synced++;
+      } catch (err) {
+        failed++;
+        if (errors.length < 5) errors.push(`${node.id}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    if (!data.orders.pageInfo.hasNextPage) break;
+    cursor = data.orders.pageInfo.endCursor;
+  }
+  return { synced, failed, errors };
 }
 
 /* ── One-hour reminder scheduling (idempotent) ────────────────────────── */

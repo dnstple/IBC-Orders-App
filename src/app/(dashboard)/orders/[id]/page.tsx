@@ -2,12 +2,13 @@ import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import { supabaseServer } from '@/lib/supabase/server';
 import type { OrderRow, LineItemRow, FulfillmentGroupRow, OrderEventRow } from '@/types/db';
-import { StatusBadge } from '@/components/StatusBadge';
+import { toOperationalOrder, statusBadgeClass } from '@/lib/operational';
 import { Chips } from '@/components/Chips';
 import { Countdown } from '@/components/Countdown';
 import { orderChips } from '@/lib/orders-view';
-import { formatLondonFull } from '@/lib/dates';
+import { formatLondonFull, formatLondonDate } from '@/lib/dates';
 import { ActionsPanel } from '@/components/ActionsPanel';
+import { MarkSeen } from '@/components/MarkSeen';
 
 export default async function OrderDetailPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -25,42 +26,61 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
   if (!order) notFound();
 
   const o = order as OrderRow;
+  const op = toOperationalOrder(o);
   const lineItems = (items ?? []) as LineItemRow[];
   const ffGroups = (groups ?? []) as FulfillmentGroupRow[];
   const timeline = (events ?? []) as OrderEventRow[];
   const money = (n: number | null) => (n == null ? '—' : `£${n.toFixed(2)}`);
-  const methodLabel = { pickup: 'Pickup', local_delivery: 'Local delivery', shipping: 'Shipping', unknown: 'Method unknown' }[o.fulfillment_method];
+  const isPickup = op.orderType === 'pickup';
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <MarkSeen orderId={o.id} isNew={o.internal_status === 'new'} />
       <div className="space-y-4">
         {/* Header */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold text-cocoa-900">{o.order_number}</h1>
-              <p className="text-sm text-stone-500">
-                {methodLabel} · {o.financial_status ?? '—'} · Shopify: {o.shopify_fulfillment_status ?? 'UNFULFILLED'}
-              </p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold text-cocoa-900">{op.orderNumber}</h1>
+              <span
+                className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${
+                  isPickup ? 'bg-cocoa-50 text-cocoa-700 ring-cocoa-100' : 'bg-sky-50 text-sky-800 ring-sky-200'
+                }`}
+              >
+                {isPickup ? 'Pickup' : 'Delivery'}
+              </span>
             </div>
-            <StatusBadge status={o.internal_status} large />
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <span className="text-sm">
-              {o.required_fulfilment_at
-                ? o.time_confirmed
-                  ? <>Required: <strong>{formatLondonFull(new Date(o.required_fulfilment_at))}</strong></>
-                  : <>Required date: <strong>{formatLondonFull(new Date(o.required_fulfilment_at)).split(',')[0]}</strong> — {o.fulfillment_method === 'pickup' ? 'collection' : 'delivery'} time TBC</>
-                : 'No required date'}
+            <span className={`rounded-full px-3 py-1 text-sm font-medium ring-1 ${statusBadgeClass(op.nativeOrderStatus)}`}>
+              {op.nativeOrderStatus}
             </span>
-            {o.time_confirmed && o.required_fulfilment_at && <Countdown targetIso={o.required_fulfilment_at} />}
           </div>
+          <p className="mt-1 text-sm text-stone-500">
+            Payment: {op.financialStatus} · Fulfilment: {op.fulfilmentStatus}
+          </p>
+          {o.time_confirmed && o.required_fulfilment_at && !op.isCancelled && (
+            <div className="mt-2"><Countdown targetIso={o.required_fulfilment_at} /></div>
+          )}
           <div className="mt-3"><Chips chips={orderChips(o)} /></div>
-          <a href={o.shopify_admin_url} target="_blank" rel="noreferrer"
-            className="mt-4 inline-block rounded-lg border border-cocoa-500 px-4 py-2 text-sm font-medium text-cocoa-700 hover:bg-cocoa-50">
-            Open order in Shopify ↗
-          </a>
         </section>
+
+        {/* Collection — prominent for pickup orders */}
+        {isPickup && (
+          <section className="rounded-xl border-2 border-cocoa-500 bg-cocoa-50/60 p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-cocoa-700">Collection</h2>
+            <p className="mt-1 text-lg font-semibold text-cocoa-900">
+              {op.pickupLocation ?? 'Italian Bear Chocolate'}
+            </p>
+            <p className="text-lg text-cocoa-900">
+              {op.pickupSlotLabel
+                ?? (o.required_fulfilment_at
+                  ? `${formatLondonDate(new Date(o.required_fulfilment_at))}${op.operationalTime ? `, ${op.operationalTime}` : ' — collection time TBC'}`
+                  : 'Collection time TBC')}
+            </p>
+            {o.pickup_delay_minutes != null && (
+              <p className="mt-1 text-sm text-cocoa-700">Preparation lead time: {o.pickup_delay_minutes} min</p>
+            )}
+          </section>
+        )}
 
         {/* Line items */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">
@@ -97,10 +117,7 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
           <h2 className="font-semibold">Customer</h2>
           <p className="mt-2 text-sm">{o.customer_name ?? '—'}</p>
           <p className="text-sm text-stone-500">{o.customer_email ?? ''}{o.customer_phone ? ` · ${o.customer_phone}` : ''}</p>
-          {o.fulfillment_method === 'pickup' && o.pickup_location && (
-            <p className="mt-3 text-sm"><span className="font-medium">Pickup location:</span> {o.pickup_location.name}{o.pickup_location.address ? ` — ${o.pickup_location.address}` : ''}</p>
-          )}
-          {o.delivery_address && (
+          {!isPickup && o.delivery_address && (
             <p className="mt-3 text-sm">
               <span className="font-medium">Delivery address:</span>{' '}
               {[o.delivery_address.name, o.delivery_address.address1, o.delivery_address.address2, o.delivery_address.city, o.delivery_address.zip].filter(Boolean).join(', ')}
@@ -118,9 +135,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
               <span className="font-medium">Customer note:</span> {o.note}
             </div>
           )}
-          {o.note_attributes.length > 0 && (
+          {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup')).length > 0 && (
             <div className="mt-3 text-sm text-stone-600">
-              {o.note_attributes.map((a) => (
+              {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup')).map((a) => (
                 <div key={a.name}><span className="text-stone-400">{a.name}:</span> {a.value}</div>
               ))}
             </div>
@@ -169,9 +186,23 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
         </section>
       </div>
 
-      {/* Actions */}
-      <div>
+      {/* Actions + Shopify handoff */}
+      <div className="space-y-4">
         <ActionsPanel order={o} groups={ffGroups} lineItems={lineItems} role={role} />
+        <aside className="rounded-xl border border-cocoa-100 bg-white p-5">
+          <a
+            href={op.shopifyAdminUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block min-h-12 w-full rounded-lg border-2 border-cocoa-600 px-4 py-3 text-center text-sm font-semibold text-cocoa-700 hover:bg-cocoa-50"
+          >
+            Open order in Shopify ↗
+          </a>
+          <p className="mt-3 text-xs leading-relaxed text-stone-500">
+            <strong className="text-stone-700">To cancel or refund this order, open it in Shopify.</strong>{' '}
+            Cancellations and refunds must be managed in Shopify so payment, stock and fulfilment records remain accurate.
+          </p>
+        </aside>
       </div>
     </div>
   );

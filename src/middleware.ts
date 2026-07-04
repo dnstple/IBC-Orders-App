@@ -28,21 +28,17 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
-  const isPublic = pathname === '/login' || pathname.startsWith('/api/webhooks') || pathname.startsWith('/api/cron');
+  const isPublic = pathname === '/login' || pathname === '/signup' || pathname.startsWith('/api/webhooks') || pathname.startsWith('/api/cron');
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
-  if (user && pathname === '/login') {
+  if (user && (pathname === '/login')) {
     const url = request.nextUrl.clone();
-    url.pathname = '/pickup';
+    url.pathname = '/today';
     return NextResponse.redirect(url);
   }
   return response;
 }
-
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|OneSignalSDK.*|sounds|icons).*)'],
-};

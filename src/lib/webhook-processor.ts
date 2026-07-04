@@ -12,7 +12,7 @@ const MAX_ATTEMPTS = 5;
 export async function processWebhookEvent(eventId: string): Promise<void> {
   const db = supabaseAdmin();
 
-  // Claim the event; only one worker may move received/failed → processing.
+  // Claim the event; only one worker may move received → processing.
   const { data: claimed } = await db
     .from('webhook_events')
     .update({ status: 'processing' })
@@ -40,12 +40,13 @@ export async function processWebhookEvent(eventId: string): Promise<void> {
     // New paid order → alert staff (dedupe key means at most one push per order).
     if (result.becamePaid) {
       await sendStaffPush({
-        heading: 'New Italian Bear order',
-        message: `New order ${result.orderNumber} — ${result.itemCount} item${result.itemCount === 1 ? '' : 's'}. Tap to view.`,
-        url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/orders`,
+        heading: result.isPickup ? 'New pickup order' : 'New delivery order',
+        message: `Order ${result.orderNumber} — ${result.itemCount} item${result.itemCount === 1 ? '' : 's'}. Tap to view.`,
+        url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/orders/${result.orderId}`,
         dedupeKey: `new_order:${result.orderId}`,
         orderId: result.orderId,
-        kind: 'new_order',
+        kind: result.isPickup ? 'new_pickup_order' : 'new_delivery_order',
+        prefKey: result.isPickup ? 'new_pickup' : 'new_delivery',
       });
     }
   } catch (err) {
@@ -55,6 +56,18 @@ export async function processWebhookEvent(eventId: string): Promise<void> {
       attempts,
       error: err instanceof Error ? err.message : String(err),
     }).eq('id', eventId);
+
+    if (attempts >= MAX_ATTEMPTS) {
+      // Admin-only integration failure alert.
+      await sendStaffPush({
+        heading: 'Shopify sync problem',
+        message: `Webhook ${claimed.topic} failed ${MAX_ATTEMPTS} times. Check Settings → sync health.`,
+        dedupeKey: `webhook_failed:${eventId}`,
+        kind: 'sync_error',
+        roles: ['admin'],
+        prefKey: 'sync_errors',
+      }).catch(() => undefined);
+    }
     throw err;
   }
 }

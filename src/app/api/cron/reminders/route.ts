@@ -43,15 +43,18 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const kind = order.fulfillment_method === 'pickup' ? 'pickup' : 'delivery';
+      const isPickup = order.fulfillment_method === 'pickup';
       const timeStr = formatLondonTime(new Date(order.required_fulfilment_at!));
       await sendStaffPush({
-        heading: `Upcoming ${kind}`,
-        message: `Order ${order.order_number} — ${kind} at ${timeStr}. Due in 1 hour.`,
+        heading: isPickup ? 'Pickup due soon' : 'Delivery due soon',
+        message: isPickup
+          ? `Order ${order.order_number} is due for collection at ${timeStr} today.`
+          : `Order ${order.order_number} is due for dispatch at ${timeStr} today.`,
         url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/orders/${order.id}`,
         dedupeKey: job.dedupe_key,
         orderId: order.id,
         kind: 'reminder_1h',
+        prefKey: 'pickup_reminders',
       });
       await db.from('scheduled_jobs').update({ status: 'sent' }).eq('id', job.id);
       await db.from('order_events').insert({

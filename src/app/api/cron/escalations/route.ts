@@ -40,8 +40,8 @@ export async function GET(req: NextRequest) {
     // One push per pushMins bucket: bucket index in the dedupe key.
     const bucket = Math.floor(ageMin / pushMins);
     const res = await sendStaffPush({
-      heading: 'Order still unacknowledged',
-      message: `Order ${order.order_number} has waited ${Math.floor(ageMin)} min. Please acknowledge.`,
+      heading: 'Order needs action',
+      message: `Order ${order.order_number} has waited ${Math.floor(ageMin)} min without being actioned.`,
       url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/orders/${order.id}`,
       dedupeKey: `escalation_push:${order.id}:${bucket}`,
       orderId: order.id,
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     if (mgrEnabled && ageMin >= mgrMins) {
       await sendStaffPush({
         heading: 'Manager attention needed',
-        message: `Order ${order.order_number} unacknowledged for ${Math.floor(ageMin)} min.`,
+        message: `Order ${order.order_number} has had no action for ${Math.floor(ageMin)} min.`,
         url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/orders/${order.id}`,
         dedupeKey: `manager_escalation:${order.id}`,
         orderId: order.id,

@@ -1,7 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import type { NotificationPrefs } from '@/types/db';
 
 /**
  * Web-push to opted-in staff devices via OneSignal.
+ * - Deduped via a unique key in notification_events (never double-sends).
+ * - Respects each staff member's notification preferences.
+ * - Prunes subscription ids OneSignal reports as invalid/expired.
  * Notifications deliberately minimise personal data: order number + item
  * count only. Never include addresses, phone numbers or customer notes.
  */
@@ -14,6 +18,8 @@ interface PushOptions {
   orderId?: string;
   kind: string;
   roles?: Array<'staff' | 'manager' | 'admin'>;
+  /** Only send to staff who have this preference enabled. */
+  prefKey?: keyof NotificationPrefs;
 }
 
 export async function sendStaffPush(opts: PushOptions): Promise<{ sent: boolean; reason?: string }> {
@@ -40,10 +46,18 @@ export async function sendStaffPush(opts: PushOptions): Promise<{ sent: boolean;
     return { sent: false, reason: 'not_configured' };
   }
 
-  let query = db.from('staff_profiles').select('onesignal_player_ids, role').eq('is_active', true);
-  if (opts.roles?.length) query = query.in('role', opts.roles);
+  let query = db.from('staff_profiles')
+    .select('id, onesignal_player_ids, role, notification_prefs')
+    .eq('is_active', true)
+    .in('role', opts.roles ?? ['staff', 'manager', 'admin']);
   const { data: profiles } = await query;
-  const playerIds = [...new Set((profiles ?? []).flatMap((p) => p.onesignal_player_ids ?? []))];
+
+  const eligible = (profiles ?? []).filter((p) => {
+    if (!opts.prefKey) return true;
+    const prefs = (p.notification_prefs ?? {}) as Partial<NotificationPrefs>;
+    return prefs[opts.prefKey] !== false; // default on
+  });
+  const playerIds = [...new Set(eligible.flatMap((p) => p.onesignal_player_ids ?? []))];
   if (playerIds.length === 0) return { sent: false, reason: 'no_devices' };
 
   const res = await fetch('https://api.onesignal.com/notifications', {
@@ -63,6 +77,24 @@ export async function sendStaffPush(opts: PushOptions): Promise<{ sent: boolean;
   if (!res.ok) {
     console.error('[push] OneSignal error', res.status, await res.text().catch(() => ''));
     return { sent: false, reason: `onesignal_${res.status}` };
+  }
+
+  // Prune invalid/expired subscriptions so lists stay healthy.
+  try {
+    const body = (await res.json()) as { errors?: { invalid_aliases?: { subscription_id?: string[] } } | string[] };
+    const invalid = Array.isArray(body.errors)
+      ? []
+      : body.errors?.invalid_aliases?.subscription_id ?? [];
+    if (invalid.length) {
+      for (const p of eligible) {
+        const remaining = (p.onesignal_player_ids ?? []).filter((id: string) => !invalid.includes(id));
+        if (remaining.length !== (p.onesignal_player_ids ?? []).length) {
+          await db.from('staff_profiles').update({ onesignal_player_ids: remaining }).eq('id', p.id);
+        }
+      }
+    }
+  } catch {
+    /* response body parsing is best-effort */
   }
   return { sent: true };
 }

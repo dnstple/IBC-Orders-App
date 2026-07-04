@@ -64,3 +64,16 @@ Work through these in order — each step is a prerequisite for the next.
 - `docs/deployment.md` — Vercel + Supabase deployment
 - `docs/test-plan.md` — full acceptance test plan
 - `docs/known-limitations.md` — confirmed Shopify capabilities vs internal statuses vs future work
+
+## v2 — Pickup scheduler, Today/Future/Past, staff approval
+
+Key changes (July 2026):
+
+- **Pickup scheduler**: orders carrying `ibc_pickup_*` custom attributes are parsed centrally (`src/lib/pickup-attrs.ts`) and normalised (`src/lib/operational.ts` → `OperationalOrder`). `ibc_pickup_requested=true` defines a pickup order; `ibc_pickup_date` is its operational date; slots drive sorting, tiles and reminders. London dates are taken from the attribute, never re-derived from UTC.
+- **Navigation**: Today / Future Orders / Past Orders / Settings. Each day splits into "Pickup Orders · n" (sorted by slot start) then "Delivery Orders · n" (sorted by order time). Delivery uses the order creation date as its operational date.
+- **"Acknowledged" removed**: opening an order silently clears its unread state; the primary pickup action is **Mark ready**, which calls Shopify's `fulfillmentOrderLineItemsPreparedForPickup` and re-syncs from Shopify. Tiles show Shopify-native statuses only. Delivery keeps native fulfilment actions (no invented Ready state).
+- **Auto-resync**: `/api/cron/reconcile` (ping every minute; self-throttles to the configurable interval, default 3 min) syncs only orders with newer Shopify `updatedAt`, with an overlap window, a crash-safe lock, and health surfaced in the header + Settings.
+- **Staff approval**: public `/signup` creates a `pending` profile via DB trigger; admins approve/reject/suspend/restore in Settings. RLS (`is_active_staff()`) blocks pending/suspended users from all order data — not just the UI.
+- **Notifications**: per-user preferences (Settings → My notifications), pickup/delivery split for new-order pushes, "Pickup due soon" reminders (configurable lead, default 60 min), admin-only sync-failure alerts, invalid-subscription pruning, dedupe keys on every send.
+- **Migrations**: run `supabase/migrations/0002_pickup_scheduler_and_staff.sql`; demo data for the new flow in `supabase/seed_demo_v2.sql`.
+- **Tests**: `npm test` (vitest) covers pickup detection/parsing, London timezone + DST, Today/Future/Past grouping, slot sorting, native status mapping, access gates and notification dedupe keys.

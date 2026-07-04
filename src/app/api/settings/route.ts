@@ -30,6 +30,16 @@ export async function POST(req: NextRequest) {
       updated_by: gate.staff.id,
     },
   ];
+  // Auto-resync interval lives inside sync_state so the reconcile lock and
+  // interval are updated atomically.
+  if (body.sync_interval_minutes != null) {
+    const { data: current } = await db.from('app_settings').select('value').eq('key', 'sync_state').maybeSingle();
+    rows.push({
+      key: 'sync_state',
+      value: { ...(current?.value ?? {}), interval_minutes: clamp(body.sync_interval_minutes, 3) },
+      updated_by: gate.staff.id,
+    });
+  }
   const { error } = await db.from('app_settings').upsert(rows);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

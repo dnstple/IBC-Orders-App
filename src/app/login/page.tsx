@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabaseBrowser } from '@/lib/supabase/client';
 
 export default function LoginPage() {
@@ -22,7 +23,7 @@ export default function LoginPage() {
       setError(error.message);
       return;
     }
-    router.replace('/pickup');
+    router.replace('/today');
     router.refresh();
   }
 
@@ -44,10 +45,13 @@ export default function LoginPage() {
         {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <button
           type="submit" disabled={busy}
-          className="mt-6 w-full rounded-lg bg-cocoa-600 py-3 font-medium text-white hover:bg-cocoa-700 disabled:opacity-50"
+          className="mt-6 min-h-12 w-full rounded-lg bg-cocoa-600 py-3 font-medium text-white hover:bg-cocoa-700 disabled:opacity-50"
         >
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+        <p className="mt-4 text-center text-sm text-stone-500">
+          Need access? <Link href="/signup" className="font-medium text-cocoa-600 underline">Request an account</Link>
+        </p>
       </form>
     </main>
   );

@@ -7,7 +7,13 @@ import type { OrderRow, FulfillmentGroupRow, LineItemRow } from '@/types/db';
 /**
  * Order actions. Buttons are role/state aware, but every rule is ALSO
  * enforced server-side — this component is convenience, not security.
- * Fulfilment success is only shown after the API confirms Shopify succeeded.
+ *
+ * Pickup:   Mark ready (Shopify ready-for-pickup mutation; customer is
+ *           notified by Shopify) → Collected & fulfil.
+ * Delivery: Preparing → Packed → Courier booked → Handed to courier & fulfil.
+ * There is no "Ready" state for delivery — Shopify doesn't support one, so
+ * we don't invent it. Success is only shown after Shopify confirms, then
+ * state re-syncs from Shopify.
  */
 export function ActionsPanel({ order, groups, lineItems, role }: {
   order: OrderRow;
@@ -20,8 +26,8 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<'fulfill' | 'courier' | null>(null);
 
-  const isPickup = order.fulfillment_method === 'pickup';
-  const isDelivery = ['local_delivery', 'shipping'].includes(order.fulfillment_method);
+  const isPickup = order.pickup_requested || order.fulfillment_method === 'pickup';
+  const isDelivery = !isPickup && ['local_delivery', 'shipping'].includes(order.fulfillment_method);
   const terminal = ['fulfilled', 'cancelled', 'refunded'].includes(order.internal_status);
   const hasOpenPickupGroup = useMemo(
     () => groups.some((g) => g.delivery_method_type === 'PICK_UP' && !['CLOSED', 'CANCELLED'].includes(g.status)),
@@ -52,7 +58,7 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
     }
   }
 
-  const btn = 'w-full rounded-lg px-4 py-3 text-sm font-medium transition disabled:opacity-50';
+  const btn = 'w-full min-h-12 rounded-lg px-4 py-3 text-sm font-medium transition disabled:opacity-50';
   const primary = `${btn} bg-cocoa-600 text-white hover:bg-cocoa-700`;
   const secondary = `${btn} border border-stone-200 text-stone-700 hover:border-cocoa-500`;
   const success = `${btn} bg-emerald-600 text-white hover:bg-emerald-700`;
@@ -62,44 +68,45 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
       <aside className="rounded-xl border border-cocoa-100 bg-white p-5">
         <h2 className="font-semibold">Actions</h2>
         <p className="mt-2 text-sm text-stone-500">
-          This order is {order.internal_status}. No further actions available.
+          This order is {order.internal_status}. No further actions available here.
         </p>
       </aside>
     );
   }
 
+  const live = !terminal;
+  const preReady = ['new', 'acknowledged', 'preparing'].includes(order.internal_status);
+
   return (
     <aside className="space-y-2 rounded-xl border border-cocoa-100 bg-white p-5 lg:sticky lg:top-4">
       <h2 className="font-semibold">Actions</h2>
 
-      {order.internal_status === 'new' && (
-        <button className={primary} disabled={busy !== null}
-          onClick={() => call('ack', `/api/orders/${order.id}/acknowledge`)}>
-          {busy === 'ack' ? 'Acknowledging…' : 'Acknowledge'}
-        </button>
-      )}
-
-      {['new', 'acknowledged'].includes(order.internal_status) && order.fulfillment_method !== 'unknown' && (
+      {live && preReady && order.fulfillment_method !== 'unknown' && order.internal_status !== 'preparing' && (
         <button className={secondary} disabled={busy !== null}
           onClick={() => call('prep', `/api/orders/${order.id}/status`, { status: 'preparing' })}>
           {busy === 'prep' ? 'Saving…' : 'Start preparing'}
         </button>
       )}
 
-      {/* Pickup path */}
-      {isPickup && ['acknowledged', 'preparing'].includes(order.internal_status) && hasOpenPickupGroup && (
+      {/* Pickup path: Mark ready is the primary action */}
+      {isPickup && preReady && hasOpenPickupGroup && (
         <button className={success} disabled={busy !== null}
           onClick={() => call('ready', `/api/orders/${order.id}/ready-for-pickup`)}>
-          {busy === 'ready' ? 'Notifying via Shopify…' : 'Ready for pickup (notifies customer)'}
+          {busy === 'ready' ? 'Updating Shopify…' : 'Mark ready'}
         </button>
       )}
-      {isPickup && role !== 'staff' && ['preparing', 'ready_for_pickup', 'acknowledged'].includes(order.internal_status) && (
+      {isPickup && preReady && hasOpenPickupGroup && (
+        <p className="text-xs text-stone-400">
+          Marks the order Ready for pickup in Shopify and sends the customer Shopify&apos;s collection email.
+        </p>
+      )}
+      {isPickup && role !== 'staff' && ['preparing', 'ready_for_pickup', 'acknowledged', 'new'].includes(order.internal_status) && (
         <button className={primary} disabled={busy !== null} onClick={() => setModal('fulfill')}>
           Collected & fulfil…
         </button>
       )}
 
-      {/* Delivery path */}
+      {/* Delivery path — Shopify-native workflow, no invented Ready state */}
       {isDelivery && order.internal_status === 'preparing' && (
         <button className={secondary} disabled={busy !== null}
           onClick={() => call('packed', `/api/orders/${order.id}/status`, { status: 'packed' })}>
@@ -111,7 +118,7 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           Courier booked…
         </button>
       )}
-      {isDelivery && role !== 'staff' && ['packed', 'courier_booked', 'preparing'].includes(order.internal_status) && (
+      {isDelivery && role !== 'staff' && ['new', 'acknowledged', 'packed', 'courier_booked', 'preparing'].includes(order.internal_status) && (
         <button className={primary} disabled={busy !== null} onClick={() => setModal('fulfill')}>
           Handed to courier & fulfil…
         </button>
@@ -120,9 +127,9 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
       {role === 'staff' && (isPickup || isDelivery) && (
         <p className="pt-1 text-xs text-stone-400">Fulfilling orders requires a manager.</p>
       )}
-      {isPickup && !hasOpenPickupGroup && !terminal && (
+      {isPickup && !hasOpenPickupGroup && (
         <p className="pt-1 text-xs text-stone-400">
-          Ready-for-pickup unavailable: Shopify has no open local-pickup fulfilment order.
+          Mark ready unavailable: Shopify has no open local-pickup fulfilment order.
         </p>
       )}
 
@@ -169,7 +176,7 @@ function FulfillModal({ order, groups, lineItems, onClose, onConfirm, busy }: {
   busy: boolean;
 }) {
   const openGroups = groups.filter((g) => !['CLOSED', 'CANCELLED'].includes(g.status));
-  const isPickup = order.fulfillment_method === 'pickup';
+  const isPickup = order.pickup_requested || order.fulfillment_method === 'pickup';
   const [quantities, setQuantities] = useState<Record<string, number>>(() => {
     const q: Record<string, number> = {};
     for (const g of openGroups) for (const l of g.line_items) q[l.ffoLineItemGid] = l.remainingQuantity;
@@ -246,9 +253,9 @@ function FulfillModal({ order, groups, lineItems, onClose, onConfirm, busy }: {
         Send Shopify {isPickup ? 'confirmation' : 'shipping confirmation'} email to customer
       </label>
       <div className="mt-4 flex gap-2">
-        <button onClick={onClose} className="flex-1 rounded-lg border border-stone-200 py-2.5 text-sm">Cancel</button>
+        <button onClick={onClose} className="min-h-11 flex-1 rounded-lg border border-stone-200 py-2.5 text-sm">Cancel</button>
         <button onClick={submit} disabled={busy || !anySelected}
-          className="flex-1 rounded-lg bg-cocoa-600 py-2.5 text-sm font-medium text-white disabled:opacity-50">
+          className="min-h-11 flex-1 rounded-lg bg-cocoa-600 py-2.5 text-sm font-medium text-white disabled:opacity-50">
           {busy ? 'Fulfilling in Shopify…' : 'Confirm & fulfil'}
         </button>
       </div>
@@ -277,9 +284,9 @@ function CourierModal({ onClose, onConfirm, busy }: {
           className="rounded-lg border border-stone-300 px-3 py-2 text-sm" />
       </div>
       <div className="mt-4 flex gap-2">
-        <button onClick={onClose} className="flex-1 rounded-lg border border-stone-200 py-2.5 text-sm">Cancel</button>
+        <button onClick={onClose} className="min-h-11 flex-1 rounded-lg border border-stone-200 py-2.5 text-sm">Cancel</button>
         <button onClick={() => onConfirm(form)} disabled={busy || !form.courierName.trim()}
-          className="flex-1 rounded-lg bg-cocoa-600 py-2.5 text-sm font-medium text-white disabled:opacity-50">
+          className="min-h-11 flex-1 rounded-lg bg-cocoa-600 py-2.5 text-sm font-medium text-white disabled:opacity-50">
           {busy ? 'Saving…' : 'Save courier details'}
         </button>
       </div>

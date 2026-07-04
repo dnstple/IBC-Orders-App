@@ -3,74 +3,89 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import type { OrderRow, LineItemRow } from '@/types/db';
-import { groupByActionDate, summarise, isPast, needsAttention } from '@/lib/orders-view';
+import { tabFor, groupByOperationalDay, type DashboardTab, type DaySections } from '@/lib/operational';
+import { dayGroupLabel } from '@/lib/dates';
 import { OrderCard } from '@/components/OrderCard';
-import { SummaryCards } from '@/components/SummaryCards';
 import { useRealtimeOrders } from '@/hooks/useRealtimeOrders';
 import { useNewOrderAlert } from '@/hooks/useNewOrderAlert';
 
-type BoardMode = 'pickup' | 'delivery' | 'attention';
-
 /**
- * Shared live board for Pickup / Delivery / Needs attention.
- * Reads via RLS-scoped anon client; every state change lands via realtime.
+ * Today / Future / Past boards. Each day is split into Pickup Orders
+ * (sorted by slot start) then Delivery Orders (sorted by order time).
+ * Reads through RLS; realtime keeps every open device current.
  */
-export function OrdersBoard({ mode }: { mode: BoardMode }) {
+export function OrdersBoard({ tab }: { tab: DashboardTab }) {
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
-  const [items, setItems] = useState<Record<string, LineItemRow[]>>({});
-  const [staffNames, setStaffNames] = useState<Record<string, string>>({});
+  const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
 
   const load = useCallback(async () => {
-    const supabase = supabaseBrowser();
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .order('required_fulfilment_at', { ascending: true })
-      .limit(400);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    const rows = (data ?? []) as OrderRow[];
-    setOrders(rows);
-
-    const ids = rows.map((o) => o.id);
-    if (ids.length) {
-      const { data: li } = await supabase.from('order_line_items').select('*').in('order_id', ids);
-      const map: Record<string, LineItemRow[]> = {};
-      for (const item of (li ?? []) as LineItemRow[]) {
-        (map[item.order_id] ??= []).push(item);
+    try {
+      const supabase = supabaseBrowser();
+      let query = supabase.from('orders').select('*').limit(500);
+      const todayIso = new Date().toISOString().slice(0, 10);
+      // Server-side narrowing (operational_date is indexed); exact London-day
+      // classification happens client-side via tabFor().
+      if (tab === 'past') {
+        query = query.lte('operational_date', todayIso).order('operational_date', { ascending: false });
+      } else {
+        query = query.gte('operational_date', todayIso).order('operational_date', { ascending: true });
       }
-      setItems(map);
+      const { data, error } = await query;
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      setError(null);
+      setOffline(false);
+      const rows = (data ?? []) as OrderRow[];
+      setOrders(rows);
+
+      const ids = rows.map((o) => o.id);
+      if (ids.length) {
+        const { data: li } = await supabase.from('order_line_items').select('order_id, quantity').in('order_id', ids);
+        const counts: Record<string, number> = {};
+        for (const item of (li ?? []) as Pick<LineItemRow, 'order_id' | 'quantity'>[]) {
+          counts[item.order_id] = (counts[item.order_id] ?? 0) + item.quantity;
+        }
+        setItemCounts(counts);
+      }
+    } catch {
+      setOffline(true);
     }
-    const { data: staff } = await supabase.from('staff_profiles').select('id, full_name');
-    if (staff) setStaffNames(Object.fromEntries(staff.map((s) => [s.id, s.full_name])));
-  }, []);
+  }, [tab]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const onOnline = () => void load();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [load]);
   useRealtimeOrders(() => void load());
 
-  const visible = useMemo(() => {
-    if (!orders) return [];
-    const active = orders.filter((o) => !o.test && !isPast(o));
-    if (mode === 'pickup') return active.filter((o) => o.fulfillment_method === 'pickup');
-    if (mode === 'delivery') return active.filter((o) => ['local_delivery', 'shipping'].includes(o.fulfillment_method));
-    return active.filter((o) => needsAttention(o).flag);
-  }, [orders, mode]);
+  const visible = useMemo(
+    () => (orders ?? []).filter((o) => !o.test && tabFor(o) === tab),
+    [orders, tab]
+  );
 
-  const hasUnacknowledged = useMemo(() => visible.some((o) => o.internal_status === 'new'), [visible]);
-  useNewOrderAlert(hasUnacknowledged);
+  const hasUnread = useMemo(
+    () => tab === 'today' && visible.some((o) => o.internal_status === 'new'),
+    [visible, tab]
+  );
+  useNewOrderAlert(hasUnread);
 
-  const groups = useMemo(() => groupByActionDate(visible), [visible]);
-  const counts = useMemo(() => summarise(visible), [visible]);
+  const days = useMemo(() => {
+    const grouped = groupByOperationalDay(visible);
+    return tab === 'past' ? grouped.reverse() : grouped;
+  }, [visible, tab]);
 
   if (error) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
         <p className="font-medium">Couldn&apos;t load orders</p>
         <p className="mt-1 text-sm">{error}</p>
-        <button onClick={() => void load()} className="mt-3 rounded-lg bg-red-700 px-4 py-2 text-sm text-white">Retry</button>
+        <button onClick={() => void load()} className="mt-3 min-h-11 rounded-lg bg-red-700 px-4 py-2 text-sm text-white">Retry</button>
       </div>
     );
   }
@@ -84,40 +99,73 @@ export function OrdersBoard({ mode }: { mode: BoardMode }) {
     );
   }
 
+  const emptyCopy = {
+    today: 'No orders due today.',
+    future: 'No upcoming orders yet.',
+    past: 'No past orders.',
+  }[tab];
+
   return (
-    <div className="space-y-6">
-      {mode !== 'attention' && <SummaryCards counts={counts} />}
-      {groups.length === 0 && (
-        <div className="rounded-xl border border-cocoa-100 bg-white p-10 text-center text-stone-500">
-          {mode === 'attention' ? 'Nothing needs attention. 🎉' : `No ${mode} orders right now.`}
+    <div className="space-y-8">
+      {offline && (
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-amber-200">
+          You appear to be offline — showing the last loaded orders.
         </div>
       )}
-      {groups.map((g) => (
-        <section key={g.key}>
-          <h2 className={`mb-2 text-sm font-semibold uppercase tracking-wide ${
-            g.key === 'attention' || g.key === 'past-unresolved' ? 'text-red-700' : 'text-stone-500'
-          }`}>
-            {g.label} <span className="font-normal">({g.orders.length})</span>
-          </h2>
-          <div className="space-y-3">
-            {g.orders.map((o) => {
-              const li = items[o.id] ?? [];
-              const summary = li.slice(0, 3).map((x) => `${x.quantity}× ${x.title}`).join(', ') + (li.length > 3 ? '…' : '');
-              const count = li.reduce((s, x) => s + x.quantity, 0);
-              return (
-                <OrderCard
-                  key={o.id}
-                  order={o}
-                  itemSummary={summary || undefined}
-                  itemCount={count || undefined}
-                  assigneeName={o.assigned_staff_id ? staffNames[o.assigned_staff_id] : null}
-                  onActioned={() => void load()}
-                />
-              );
-            })}
-          </div>
-        </section>
+      {days.length === 0 && (
+        <div className="rounded-xl border border-cocoa-100 bg-white p-10 text-center text-stone-500">{emptyCopy}</div>
+      )}
+      {days.map((day) => (
+        <DayGroup
+          key={day.dateKey}
+          day={day}
+          itemCounts={itemCounts}
+          showDayHeading={tab !== 'today'}
+        />
       ))}
+    </div>
+  );
+}
+
+function DayGroup({ day, itemCounts, showDayHeading }: {
+  day: DaySections;
+  itemCounts: Record<string, number>;
+  showDayHeading: boolean;
+}) {
+  const heading = dayGroupLabel(new Date(`${day.dateKey}T12:00:00Z`));
+  return (
+    <section>
+      {showDayHeading && (
+        <h2 className="mb-3 border-b border-cocoa-100 pb-1.5 text-base font-semibold text-cocoa-900">{heading}</h2>
+      )}
+      {day.pickup.length > 0 && (
+        <Subsection label="Pickup Orders" count={day.pickup.length}>
+          {day.pickup.map((o) => (
+            <OrderCard key={o.id} order={o} itemCount={itemCounts[o.id]} showDate={showDayHeading} />
+          ))}
+        </Subsection>
+      )}
+      {day.delivery.length > 0 && (
+        <Subsection label="Delivery Orders" count={day.delivery.length}>
+          {day.delivery.map((o) => (
+            <OrderCard key={o.id} order={o} itemCount={itemCounts[o.id]} showDate={showDayHeading} />
+          ))}
+        </Subsection>
+      )}
+      {day.pickup.length === 0 && day.delivery.length === 0 && (
+        <p className="text-sm text-stone-400">No orders.</p>
+      )}
+    </section>
+  );
+}
+
+function Subsection({ label, count, children }: { label: string; count: number; children: React.ReactNode }) {
+  return (
+    <div className="mb-5">
+      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
+        {label} · {count}
+      </h3>
+      <div className="grid gap-3 lg:grid-cols-2">{children}</div>
     </div>
   );
 }

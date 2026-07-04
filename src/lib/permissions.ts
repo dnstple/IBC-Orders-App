@@ -32,7 +32,8 @@ export async function requireRole(
   if (!profile || !profile.is_active) {
     return { error: NextResponse.json({ error: 'No active staff profile' }, { status: 403 }) };
   }
-  if (RANK[profile.role as StaffRole] < RANK[minimum]) {
+  const rank = RANK[profile.role as StaffRole] ?? 0; // pending/suspended → 0
+  if (rank < RANK[minimum]) {
     return { error: NextResponse.json({ error: `Requires ${minimum} role` }, { status: 403 }) };
   }
   return { staff: { id: profile.id, fullName: profile.full_name, role: profile.role as StaffRole } };
