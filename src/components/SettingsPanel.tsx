@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { NotificationPrefs } from '@/types/db';
+import { SignOutButton } from '@/components/SignOutButton';
 
 interface Setting { key: string; value: Record<string, unknown> }
 
@@ -22,6 +23,13 @@ export function SettingsPanel({ role, settings, myPrefs }: {
       {role === 'admin' && <StaffAccessSection />}
       {role !== 'staff' && <AlertTimingsSection settings={settings} />}
       {role === 'admin' && <WriteErrorsSection />}
+      <section className="rounded-xl border border-cocoa-100 bg-white p-5">
+        <h2 className="font-semibold">Account</h2>
+        <p className="mt-1 text-xs text-stone-500">Sign out of IBC Orders on this device.</p>
+        <div className="mt-3">
+          <SignOutButton />
+        </div>
+      </section>
     </div>
   );
 }

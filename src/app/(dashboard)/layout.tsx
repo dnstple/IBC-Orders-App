@@ -5,7 +5,6 @@ import { SyncHealth } from '@/components/SyncHealth';
 import { OneSignalInit } from '@/components/OneSignalInit';
 import { Toaster } from '@/components/Toaster';
 import { InstallPrompt } from '@/components/InstallPrompt';
-import { SignOutButton } from '@/components/SignOutButton';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await supabaseServer();
@@ -45,10 +44,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <h1 className="text-lg font-semibold text-cocoa-900">Italian Bear Orders</h1>
           <SyncHealth canManualSync={opRole !== 'staff'} />
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-stone-500">{profile.full_name} · {opRole}</span>
-          <SignOutButton />
-        </div>
+        <span className="text-sm text-stone-500">{profile.full_name} · {opRole}</span>
       </header>
       <Nav role={opRole} />
       <main className="mt-4">
