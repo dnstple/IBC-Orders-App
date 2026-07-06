@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: 'Italian Bear Orders',
   description: 'Internal order operations dashboard — Italian Bear Chocolate',
   manifest: '/manifest.json',
-  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'IB Orders' },
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'IBC Orders' },
 };
 
 export const viewport: Viewport = {

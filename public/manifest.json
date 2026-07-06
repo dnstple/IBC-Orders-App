@@ -1,6 +1,6 @@
 {
   "name": "Italian Bear Orders",
-  "short_name": "IB Orders",
+  "short_name": "IBC Orders",
   "description": "Internal order operations dashboard for Italian Bear Chocolate",
   "start_url": "/today",
   "display": "standalone",
