@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { toast } from '@/components/Toaster';
 
 declare global {
   interface Window {
@@ -78,12 +79,40 @@ export function OneSignalInit() {
 
   async function enable() {
     const sdk = sdkRef.current;
-    if (!sdk) return;
+    if (!sdk) {
+      toast('Notification service is still loading — try again in a few seconds.', 'info');
+      return;
+    }
+    if (typeof Notification === 'undefined') {
+      toast('This browser does not support notifications.', 'error');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      toast('Notifications are blocked for this site. Enable them in your browser\u2019s site settings (padlock icon \u2192 Notifications \u2192 Allow), then try again.', 'error');
+      return;
+    }
     setBusy(true);
+    const timeout = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 15000));
     try {
-      await sdk.Notifications.requestPermission();
-      await sdk.User.PushSubscription.optIn();
+      const raced = await Promise.race([
+        (async () => {
+          await sdk.Notifications.requestPermission();
+          await sdk.User.PushSubscription.optIn();
+          return 'done' as const;
+        })(),
+        timeout,
+      ]);
+      if (raced === 'timeout') {
+        toast(
+          Notification.permission === 'granted'
+            ? 'Permission is granted but the push registration is stalling \u2014 check that Windows notifications are enabled for this browser, then try again.'
+            : 'The permission popup didn\u2019t appear \u2014 your browser is suppressing it. In Edge: Settings \u2192 Cookies and site permissions \u2192 Notifications \u2192 turn off \u201cQuiet notification requests\u201d.',
+          'error'
+        );
+        return;
+      }
       setEnabled(sdk.Notifications.permission);
+      if (sdk.Notifications.permission) toast('Notifications enabled on this device.', 'success');
     } finally {
       setBusy(false);
     }
