@@ -8,7 +8,6 @@ import { Countdown } from '@/components/Countdown';
 import { orderChips } from '@/lib/orders-view';
 import { formatLondonFull, formatLondonDate } from '@/lib/dates';
 import { ActionsPanel } from '@/components/ActionsPanel';
-import { MarkSeen } from '@/components/MarkSeen';
 
 export default async function OrderDetailPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -35,7 +34,6 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-      <MarkSeen orderId={o.id} isNew={o.internal_status === 'new'} />
       <div className="space-y-4">
         {/* Header */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">

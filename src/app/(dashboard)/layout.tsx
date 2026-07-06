@@ -3,6 +3,7 @@ import { supabaseServer } from '@/lib/supabase/server';
 import { Nav } from '@/components/Nav';
 import { SyncHealth } from '@/components/SyncHealth';
 import { OneSignalInit } from '@/components/OneSignalInit';
+import { Toaster } from '@/components/Toaster';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await supabaseServer();
@@ -34,8 +35,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const opRole = role as 'staff' | 'manager' | 'admin';
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-3 pb-24 sm:px-6 sm:pb-6">
+    <div className="mx-auto min-h-screen w-full max-w-5xl px-3 pb-32 sm:px-6 sm:pb-6">
       <OneSignalInit />
+      <Toaster />
       <header className="flex flex-wrap items-center justify-between gap-2 py-4">
         <div>
           <h1 className="text-lg font-semibold text-cocoa-900">Italian Bear Orders</h1>

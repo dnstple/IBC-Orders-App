@@ -117,3 +117,22 @@ describe('ready-for-pickup state', () => {
     expect(nativeStatus(order({ internal_status: 'preparing', shopify_fulfillment_status: 'FULFILLED' }))).toBe('Fulfilled');
   });
 });
+
+describe('due-soon / urgency states', async () => {
+  const { dueState } = await import('@/lib/operational');
+  const NOW2 = new Date('2026-07-04T15:10:00+01:00');
+  it('flags due_soon within 30 minutes of the slot start', () => {
+    const o = order({ pickup_requested: true, pickup_slot_start: '2026-07-04T15:30:00+01:00' });
+    expect(dueState(o, NOW2)).toBe('due_soon');
+  });
+  it('flags due_now once the slot has started', () => {
+    const o = order({ pickup_requested: true, pickup_slot_start: '2026-07-04T15:00:00+01:00' });
+    expect(dueState(o, NOW2)).toBe('due_now');
+  });
+  it('no urgency far ahead, for delivery, or once fulfilled/cancelled', () => {
+    expect(dueState(order({ pickup_requested: true, pickup_slot_start: '2026-07-04T17:00:00+01:00' }), NOW2)).toBeNull();
+    expect(dueState(order({ fulfillment_method: 'shipping' }), NOW2)).toBeNull();
+    expect(dueState(order({ pickup_requested: true, pickup_slot_start: '2026-07-04T15:00:00+01:00', internal_status: 'fulfilled' }), NOW2)).toBeNull();
+    expect(dueState(order({ pickup_requested: true, pickup_slot_start: '2026-07-04T15:00:00+01:00', cancelled_at: '2026-07-04T14:00:00Z', internal_status: 'cancelled' }), NOW2)).toBeNull();
+  });
+});

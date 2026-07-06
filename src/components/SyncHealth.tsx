@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
+import { toast } from '@/components/Toaster';
 
 interface SyncState {
   running?: boolean;
@@ -41,18 +42,27 @@ export function SyncHealth({ canManualSync }: { canManualSync: boolean }) {
   }, []);
 
   async function manualSync() {
+    if (busy) return; // no duplicate requests
     setBusy(true);
     setResult(null);
     try {
       const res = await fetch('/api/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json) {
-        setResult(`Sync failed (${res.status}): ${json?.error ?? 'see server logs'}`);
+        const message = `Sync failed: ${json?.error ?? `HTTP ${res.status}`}`;
+        setResult(message);
+        toast(message, 'error');
+      } else if (json.failed > 0) {
+        setResult(`Synced ${json.synced}, ${json.failed} failed`);
+        toast(`Refresh finished with ${json.failed} failure${json.failed === 1 ? '' : 's'}.`, 'error');
       } else {
-        setResult(`Synced ${json.synced}, failed ${json.failed}`);
+        setResult(`✓ Synced ${json.synced}`);
+        toast(`Refreshed ${json.synced} order${json.synced === 1 ? '' : 's'} from Shopify.`, 'success');
+        setTimeout(() => setResult(null), 5000);
       }
     } catch {
-      setResult('Sync error: network problem');
+      setResult('Sync failed: network problem');
+      toast('Refresh failed — network problem.', 'error');
     }
     setBusy(false);
     void load();
@@ -84,11 +94,11 @@ export function SyncHealth({ canManualSync }: { canManualSync: boolean }) {
           disabled={busy}
           className="min-h-8 rounded-md border border-stone-200 px-2.5 py-1 text-stone-600 hover:border-cocoa-500 disabled:opacity-50"
         >
-          {busy ? 'Syncing…' : 'Refresh now'}
+          {busy ? 'Refreshing…' : 'Refresh now'}
         </button>
       )}
       {result && (
-        <span className={result.startsWith('Synced') ? 'text-emerald-700' : 'font-medium text-red-700'}>{result}</span>
+        <span role="status" className={result.startsWith('✓') || result.startsWith('Synced') ? 'text-emerald-700' : 'font-medium text-red-700'}>{result}</span>
       )}
     </div>
   );

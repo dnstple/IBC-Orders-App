@@ -169,3 +169,22 @@ export function groupByOperationalDay(orders: OrderRow[]): DaySections[] {
       delivery: sortDelivery(b.delivery),
     }));
 }
+
+/* ── Urgency for pickup orders ─────────────────────────────────────────── */
+
+export type DueState = 'due_soon' | 'due_now' | null;
+
+/**
+ * 'due_soon': pickup slot starts within 30 minutes.
+ * 'due_now':  pickup slot has started and the order isn't collected yet.
+ * Never set for cancelled/refunded/fulfilled orders.
+ */
+export function dueState(o: OrderRow, now = new Date()): DueState {
+  if (!isPickupOrder(o) || !o.pickup_slot_start) return null;
+  if (['fulfilled', 'cancelled', 'refunded'].includes(o.internal_status) || o.cancelled_at) return null;
+  const start = new Date(o.pickup_slot_start).getTime();
+  const diffMin = (start - now.getTime()) / 60000;
+  if (diffMin <= 0) return 'due_now';
+  if (diffMin <= 30) return 'due_soon';
+  return null;
+}

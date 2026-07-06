@@ -6,8 +6,23 @@
   color-scheme: light;
 }
 
+/* Layout safety: the app must never scroll horizontally. */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   @apply bg-cream text-ink antialiased;
+}
+
+/* Keyboard accessibility: always-visible focus states. */
+:focus-visible {
+  outline: 2px solid #7b5539;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 @keyframes flash-bg {
@@ -18,7 +33,25 @@ body {
   animation: flash-bg 1s ease-in-out 4;
 }
 
-/* Large touch targets on tablets */
-button, a[role="button"] {
-  min-height: 2.5rem;
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.skeleton {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+  @apply rounded bg-cocoa-50;
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Large touch targets on tablets/phones. */
+button, a[role='button'], [role='button'] {
+  min-height: 2.75rem; /* 44px */
 }
