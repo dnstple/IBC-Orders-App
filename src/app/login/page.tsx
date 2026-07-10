@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { supabaseBrowser } from '@/lib/supabase/client';
 import { AuthShell, AuthField, AuthButton, AuthError } from '@/components/AuthShell';
 
 export default function LoginPage() {
@@ -17,15 +16,24 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const supabase = supabaseBrowser();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) {
-      setError(error.message === 'Invalid login credentials' ? 'Email or password is incorrect.' : error.message);
-      return;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? 'Sign in failed — please try again.');
+        return;
+      }
+      // Full navigation so the fresh session cookie is used immediately.
+      window.location.assign('/today');
+    } catch {
+      setError('Network problem — check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    router.replace('/today');
-    router.refresh();
   }
 
   return (
