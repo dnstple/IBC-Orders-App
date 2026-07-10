@@ -107,7 +107,7 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
       )}
 
       {/* Step 3 (pickup): Mark fulfilled — confirmation required */}
-      {isPickup && status === 'ready_for_pickup' && role !== 'staff' && (
+      {isPickup && status === 'ready_for_pickup' && (
         <button className={primary} disabled={busy !== null} onClick={() => setModal('fulfill')}>
           Mark fulfilled…
         </button>
@@ -131,15 +131,12 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           Courier booked…
         </button>
       )}
-      {isDelivery && role !== 'staff' && ['preparing', 'packed', 'courier_booked'].includes(status) && (
+      {isDelivery && ['preparing', 'packed', 'courier_booked'].includes(status) && (
         <button className={primary} disabled={busy !== null} onClick={() => setModal('fulfill')}>
           Mark fulfilled…
         </button>
       )}
 
-      {role === 'staff' && (isPickup || isDelivery) && status !== 'new' && (
-        <p className="pt-1 text-xs text-stone-400">Fulfilling orders requires a manager.</p>
-      )}
       {isPickup && !hasOpenPickupGroup && (
         <p className="pt-1 text-xs text-stone-400">
           Ready-for-pickup unavailable: Shopify has no open local-pickup fulfilment order.

@@ -7,7 +7,7 @@ import { syncOrderFromShopify, isDemoOrder } from '@/lib/shopify/sync';
 
 /**
  * "Collected & fulfil" (pickup) / "Handed to courier & fulfil" (delivery).
- * Manager+ only. Supports full or partial quantities per Fulfillment Order.
+ * Available to all active staff. Supports full or partial quantities per Fulfillment Order.
  * The order is NEVER marked fulfilled locally until Shopify's
  * fulfillmentCreate succeeds; final state is re-read from Shopify.
  *
@@ -19,7 +19,7 @@ import { syncOrderFromShopify, isDemoOrder } from '@/lib/shopify/sync';
  * Empty selections ⇒ fulfil all remaining items on all open groups.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('staff');
   if ('error' in gate) return gate.error;
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
