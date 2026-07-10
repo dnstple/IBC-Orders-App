@@ -18,6 +18,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-GB">
+      <head>
+        {/* Compatibility shim for iPadOS 12 (Safari 12): globalThis is
+            missing there but required by the data-client libraries. */}
+        <script dangerouslySetInnerHTML={{ __html: 'window.globalThis=window.globalThis||window;' }} />
+      </head>
       <body>{children}</body>
     </html>
   );
