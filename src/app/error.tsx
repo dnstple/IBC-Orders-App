@@ -9,6 +9,17 @@ import { useEffect } from 'react';
 export default function ErrorBoundary({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
     console.error('[app error boundary]', error);
+    // Report to the server so crashes on devices without DevTools
+    // (work iPads) can be inspected via SQL: app_settings.last_client_error
+    fetch('/api/client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: error.message,
+        stack: error.stack ?? error.digest ?? '',
+        url: window.location.href,
+      }),
+    }).catch(() => undefined);
   }, [error]);
 
   return (

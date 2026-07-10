@@ -32,7 +32,10 @@ export function InstallPrompt() {
     const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) ?? 0);
     if (Date.now() - dismissedAt < REMIND_AFTER_DAYS * 86400000) return;
 
-    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    // Modern iPads report a desktop Mac user agent; detect via touch support.
+    const isIos =
+      /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+      (/macintosh/i.test(navigator.userAgent) && 'ontouchend' in document);
     if (isIos) {
       setPlatform('ios');
       return;
