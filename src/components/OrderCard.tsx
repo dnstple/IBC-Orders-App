@@ -147,6 +147,16 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
         </span>
       </div>
 
+      {/* Customer note — clamped so long notes can't swallow the board */}
+      {order.note?.trim() && (
+        <div
+          className="mt-2 min-w-0 max-w-full break-words rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-amber-100 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
+          title={order.note}
+        >
+          <span className="font-semibold">Note:</span> {order.note}
+        </div>
+      )}
+
       {/* Workflow: acknowledge directly from the tile */}
       {unread && (
         <button
