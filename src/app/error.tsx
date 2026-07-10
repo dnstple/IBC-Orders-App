@@ -9,6 +9,18 @@ import { useEffect } from 'react';
 export default function ErrorBoundary({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
     console.error('[app error boundary]', error);
+    // Stale-deployment recovery: after a redeploy, cached pages reference
+    // chunks that no longer exist. Force one clean reload (guarded so it
+    // can never loop) — this self-heals kiosk devices like the shop iPad.
+    if (/Loading chunk .+ failed|ChunkLoadError|Importing a module script failed/i.test(error.message)) {
+      const key = 'ibc-chunk-reload-at';
+      const last = Number(sessionStorage.getItem(key) ?? 0);
+      if (Date.now() - last > 60000) {
+        sessionStorage.setItem(key, String(Date.now()));
+        window.location.reload();
+        return;
+      }
+    }
     // Report to the server so crashes on devices without DevTools
     // (work iPads) can be inspected via SQL: app_settings.last_client_error
     fetch('/api/client-error', {
