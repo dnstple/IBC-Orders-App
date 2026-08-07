@@ -33,8 +33,8 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
   const isPickup = op.orderType === 'pickup';
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-      <div className="space-y-4">
+    <div className="grid w-full max-w-full gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="min-w-0 space-y-4">
         {/* Header */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -98,11 +98,7 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
                     {li.fulfilled_quantity > 0 && <span> · fulfilled {li.fulfilled_quantity}/{li.quantity}</span>}
                     {li.refunded_quantity > 0 && <span className="text-red-600"> · {li.refunded_quantity} removed/refunded</span>}
                   </div>
-                  {li.properties.length > 0 && (
-                    <div className="mt-1 text-xs text-amber-800">
-                      {li.properties.map((p) => `${p.name}: ${p.value}`).join(' · ')}
-                    </div>
-                  )}
+                  <LineItemProperties properties={li.properties} />
                 </div>
                 <div className="text-sm text-stone-600">{li.unit_price != null ? `£${li.unit_price.toFixed(2)}` : ''}</div>
               </li>
@@ -133,9 +129,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
               <span className="font-medium">Customer note:</span> {o.note}
             </div>
           )}
-          {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup')).length > 0 && (
-            <div className="mt-3 text-sm text-stone-600">
-              {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup')).map((a) => (
+          {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup') && !a.name.startsWith('_')).length > 0 && (
+            <div className="mt-3 min-w-0 text-sm text-stone-600 [overflow-wrap:anywhere]">
+              {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup') && !a.name.startsWith('_')).map((a) => (
                 <div key={a.name}><span className="text-stone-400">{a.name}:</span> {a.value}</div>
               ))}
             </div>
@@ -185,7 +181,7 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
       </div>
 
       {/* Actions + Shopify handoff */}
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         <ActionsPanel order={o} groups={ffGroups} lineItems={lineItems} role={role} />
         <aside className="rounded-xl border border-cocoa-100 bg-white p-5">
           <a
@@ -202,6 +198,49 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
           </p>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Line-item properties, made operational:
+ * - Hidden technical properties (underscore-prefixed, e.g. the gift-box
+ *   app's "_Gift Box Selection JSON") are never shown.
+ * - Selection lists like "2 × Praline Coffee, 1 × Truffle Milk, …" are
+ *   split onto one line per flavour with its count.
+ * - Everything wraps hard so long values can never push the page sideways.
+ */
+function LineItemProperties({ properties }: { properties: Array<{ name: string; value: string }> }) {
+  const visible = properties.filter((p) => !p.name.startsWith('_') && p.value?.trim());
+  if (visible.length === 0) return null;
+
+  const asSelectionList = (value: string): string[] | null => {
+    const parts = value.split(/,\s+(?=\d+\s*[×x]\s)/).map((x) => x.trim()).filter(Boolean);
+    return parts.length >= 2 && parts.every((x) => /^\d+\s*[×x]\s/.test(x)) ? parts : null;
+  };
+
+  return (
+    <div className="mt-1 min-w-0 space-y-1 text-xs text-amber-800 [overflow-wrap:anywhere]">
+      {visible.map((p) => {
+        const list = asSelectionList(p.value);
+        if (list) {
+          return (
+            <div key={p.name}>
+              <span className="font-semibold">{p.name}:</span>
+              <ul className="mt-0.5 space-y-0.5 pl-3">
+                {list.map((entry, i) => (
+                  <li key={i} className="list-none">{entry}</li>
+                ))}
+              </ul>
+            </div>
+          );
+        }
+        return (
+          <div key={p.name}>
+            <span className="font-semibold">{p.name}:</span> {p.value}
+          </div>
+        );
+      })}
     </div>
   );
 }
