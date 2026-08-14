@@ -70,3 +70,11 @@ button, a[role='button'], [role='button'] {
     }
   }
 }
+
+/* Definitive legacy override (class set by the head script): never use
+   fixed positioning for the tab bar on old WebKit, at any width. */
+html.legacy-webkit .ib-tabbar {
+  position: static !important;
+  border: 1px solid #ede3d8;
+  border-radius: 12px;
+}

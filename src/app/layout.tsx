@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               // global error (incl. syntax errors in chunks, which React
               // boundaries never see) to /api/client-error.
               "window.globalThis=window.globalThis||window;" +
+              // Tag legacy WebKit (no overflow:clip support) so CSS can
+              // disable position:fixed, which old iPads mispaint on scroll.
+              "try{if(!(window.CSS&&CSS.supports&&CSS.supports('overflow','clip'))){document.documentElement.className+=' legacy-webkit';}}catch(e){document.documentElement.className+=' legacy-webkit';}" +
               "(function(){var sent=false;function report(m,st){if(sent)return;sent=true;try{var x=new XMLHttpRequest();x.open('POST','/api/client-error',true);x.setRequestHeader('Content-Type','application/json');x.send(JSON.stringify({message:'[global] '+m,stack:st||'',url:location.href}));}catch(e){}}" +
               "window.onerror=function(msg,src,line,col,err){report(String(msg),(err&&err.stack)||String(src)+':'+line+':'+col);};" +
               "window.addEventListener('unhandledrejection',function(e){var r=e&&e.reason;report(r&&r.message?r.message:String(r),(r&&r.stack)||'');});})();",
