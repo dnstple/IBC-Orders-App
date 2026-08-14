@@ -15,7 +15,7 @@ export function Nav(_props: { role?: 'staff' | 'manager' | 'admin' }) {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-10 w-full max-w-full border-t border-cocoa-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:static sm:rounded-xl sm:border sm:bg-white sm:pb-0"
+      className="ib-tabbar z-10 w-full max-w-full border-t border-cocoa-100 bg-white pb-[env(safe-area-inset-bottom)] sm:rounded-xl sm:border sm:pb-0"
     >
       <div className="mx-auto grid w-full max-w-5xl grid-cols-4 max-[420px]:grid-cols-2">
         {TABS.map((t) => {

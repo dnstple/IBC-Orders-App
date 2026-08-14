@@ -55,3 +55,18 @@ body {
 button, a[role='button'], [role='button'] {
   min-height: 2.75rem; /* 44px */
 }
+
+/* Bottom tab bar: fixed-to-bottom only on modern engines. Legacy WebKit
+   (iPadOS 12) mispaints fixed elements during scroll — the bar strands
+   mid-screen — so on engines that old it stays in normal document flow.
+   (`overflow: clip` support doubles as a "modern browser" test.) */
+@media (max-width: 639px) {
+  @supports (overflow: clip) {
+    .ib-tabbar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+  }
+}
