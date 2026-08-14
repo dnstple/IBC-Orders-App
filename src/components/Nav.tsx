@@ -12,6 +12,11 @@ const TABS = [
 
 export function Nav(_props: { role?: 'staff' | 'manager' | 'admin' }) {
   const pathname = usePathname();
+
+  // No tab bar inside an order — the Back button handles navigation there,
+  // and this sidesteps legacy iPads mispainting the fixed bar on scroll.
+  if (pathname.startsWith('/orders/')) return null;
+
   return (
     <nav
       aria-label="Main"
