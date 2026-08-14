@@ -8,6 +8,7 @@ import { Countdown } from '@/components/Countdown';
 import { orderChips } from '@/lib/orders-view';
 import { formatLondonFull, formatLondonDate } from '@/lib/dates';
 import { ActionsPanel } from '@/components/ActionsPanel';
+import { BackButton } from '@/components/BackButton';
 
 export default async function OrderDetailPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -33,7 +34,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
   const isPickup = op.orderType === 'pickup';
 
   return (
-    <div className="grid w-full max-w-full gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div>
+      <BackButton />
+      <div className="grid w-full max-w-full gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="min-w-0 space-y-4">
         {/* Header */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">
@@ -197,6 +200,7 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
             Cancellations and refunds must be managed in Shopify so payment, stock and fulfilment records remain accurate.
           </p>
         </aside>
+      </div>
       </div>
     </div>
   );

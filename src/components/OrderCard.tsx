@@ -147,13 +147,11 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
         </span>
       </div>
 
-      {/* Customer note — clamped so long notes can't swallow the board */}
+      {/* Customer note indicator — content only shown inside the order,
+          since notes can contain anything the customer typed */}
       {order.note?.trim() && (
-        <div
-          className="mt-2 min-w-0 max-w-full break-words rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-amber-100 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
-          title={order.note}
-        >
-          <span className="font-semibold">Note:</span> {order.note}
+        <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 ring-1 ring-amber-200">
+          <span aria-hidden>📝</span> Customer note — tap to view
         </div>
       )}
 
