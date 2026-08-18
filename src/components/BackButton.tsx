@@ -12,7 +12,7 @@ export function BackButton() {
 
   function goBack() {
     if (window.history.length > 1) router.back();
-    else router.push('/today');
+    else router.push('/pickups');
   }
 
   return (

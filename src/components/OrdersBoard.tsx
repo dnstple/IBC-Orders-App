@@ -3,21 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import type { OrderRow, LineItemRow } from '@/types/db';
-import { tabFor, groupByOperationalDay, type DashboardTab, type DaySections } from '@/lib/operational';
-import { dayGroupLabel, formatLondonFull } from '@/lib/dates';
+import { isPickupOrder, sortPickup, sortDelivery, operationalDateKey } from '@/lib/operational';
+import { dayGroupLabel, formatLondonDate, formatLondonFull, londonDateKey } from '@/lib/dates';
 import { OrderCard } from '@/components/OrderCard';
 import { useRealtimeOrders } from '@/hooks/useRealtimeOrders';
 import { useNewOrderAlert } from '@/hooks/useNewOrderAlert';
 
 const GRID = 'grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]';
-const RETRY_DELAYS = [2000, 8000]; // limited exponential backoff — never infinite
+const RETRY_DELAYS = [2000, 8000]; // limited backoff — never infinite
+const TERMINAL = ['fulfilled', 'cancelled', 'refunded'];
 
 /**
- * Today / Future / Past boards. Resilient: keeps the last good data with a
- * warning banner when a refresh fails, retries with bounded backoff, and
- * one malformed order can never take down the list.
+ * Pickups / Deliveries boards. Live (non-fulfilled, non-cancelled) orders
+ * only, grouped by day and ordered strictly by time: pickups by collection
+ * slot, deliveries by order time. Overdue days surface at the top in amber.
  */
-export function OrdersBoard({ tab }: { tab: DashboardTab }) {
+export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -26,18 +27,16 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
   const loading = useRef(false);
 
   const load = useCallback(async () => {
-    if (loading.current) return; // no overlapping fetches
+    if (loading.current) return;
     loading.current = true;
     try {
       const supabase = supabaseBrowser();
-      let query = supabase.from('orders').select('*').limit(500);
-      const todayIso = new Date().toISOString().slice(0, 10);
-      if (tab === 'past') {
-        query = query.lte('operational_date', todayIso).order('operational_date', { ascending: false });
-      } else {
-        query = query.gte('operational_date', todayIso).order('operational_date', { ascending: true });
-      }
-      const { data, error } = await query;
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .not('internal_status', 'in', `(${TERMINAL.join(',')})`)
+        .order('operational_date', { ascending: true })
+        .limit(500);
       if (error) throw new Error(error.message);
 
       const rows = (data ?? []) as OrderRow[];
@@ -60,7 +59,6 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
         ? 'You appear to be offline.'
         : err instanceof Error ? err.message : 'Could not refresh orders.';
       setLoadError(message);
-      // Bounded auto-retry with backoff.
       const delay = RETRY_DELAYS[retryCount.current];
       if (delay != null) {
         retryCount.current += 1;
@@ -69,7 +67,7 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
     } finally {
       loading.current = false;
     }
-  }, [tab]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -80,22 +78,30 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
   useRealtimeOrders(() => void load());
 
   const visible = useMemo(
-    () => (orders ?? []).filter((o) => !o.test && tabFor(o) === tab),
-    [orders, tab]
+    () => (orders ?? []).filter((o) => !o.test && isPickupOrder(o) === (board === 'pickups')),
+    [orders, board]
   );
 
-  const hasUnread = useMemo(
-    () => tab === 'today' && visible.some((o) => o.internal_status === 'new'),
-    [visible, tab]
-  );
+  const hasUnread = useMemo(() => visible.some((o) => o.internal_status === 'new'), [visible]);
   useNewOrderAlert(hasUnread);
 
+  /** Day groups, ascending; within each day strictly by time. */
   const days = useMemo(() => {
-    const grouped = groupByOperationalDay(visible);
-    return tab === 'past' ? grouped.reverse() : grouped;
-  }, [visible, tab]);
+    const byDay = new Map<string, OrderRow[]>();
+    for (const o of visible) {
+      const key = operationalDateKey(o);
+      const list = byDay.get(key) ?? [];
+      list.push(o);
+      byDay.set(key, list);
+    }
+    return [...byDay.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([dateKey, list]) => ({
+        dateKey,
+        orders: board === 'pickups' ? sortPickup(list) : sortDelivery(list),
+      }));
+  }, [visible, board]);
 
-  /* Initial load failed with nothing to show */
   if (orders === null && loadError) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
@@ -109,7 +115,6 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
     );
   }
 
-  /* Initial loading: structured skeletons matching real cards */
   if (orders === null) {
     return (
       <div className="space-y-5" aria-busy="true" aria-label="Loading orders">
@@ -121,11 +126,7 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
     );
   }
 
-  const emptyCopy = {
-    today: 'No orders due today.',
-    future: 'No upcoming orders yet.',
-    past: 'No past orders.',
-  }[tab];
+  const todayKey = londonDateKey(new Date());
 
   return (
     <div className="w-full max-w-full space-y-8">
@@ -141,11 +142,30 @@ export function OrdersBoard({ tab }: { tab: DashboardTab }) {
         </div>
       )}
       {days.length === 0 && (
-        <div className="rounded-xl border border-cocoa-100 bg-white p-10 text-center text-stone-500">{emptyCopy}</div>
+        <div className="rounded-xl border border-cocoa-100 bg-white p-10 text-center text-stone-500">
+          No open {board === 'pickups' ? 'pickup' : 'delivery'} orders. 🎉
+        </div>
       )}
-      {days.map((day) => (
-        <DayGroup key={day.dateKey} day={day} itemCounts={itemCounts} showDayHeading={tab !== 'today'} onActioned={() => void load()} />
-      ))}
+      {days.map(({ dateKey, orders: dayOrders }) => {
+        const overdue = dateKey < todayKey;
+        const label = overdue
+          ? `Overdue — ${formatLondonDate(new Date(`${dateKey}T12:00:00Z`))}`
+          : dayGroupLabel(new Date(`${dateKey}T12:00:00Z`));
+        return (
+          <section key={dateKey} className="min-w-0">
+            <h2 className={`mb-3 border-b pb-1.5 text-base font-semibold ${
+              overdue ? 'border-red-200 text-red-700' : 'border-cocoa-100 text-cocoa-900'
+            }`}>
+              {label} <span className="font-normal text-stone-400">· {dayOrders.length}</span>
+            </h2>
+            <div className={GRID}>
+              {dayOrders.map((o) => (
+                <OrderCard key={o.id} order={o} itemCount={itemCounts[o.id]} showDate={false} onActioned={() => void load()} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -163,50 +183,6 @@ function SkeletonCard() {
         <div className="skeleton h-4 w-32" />
         <div className="skeleton h-4 w-20" />
       </div>
-    </div>
-  );
-}
-
-function DayGroup({ day, itemCounts, showDayHeading, onActioned }: {
-  day: DaySections;
-  itemCounts: Record<string, number>;
-  showDayHeading: boolean;
-  onActioned: () => void;
-}) {
-  const heading = dayGroupLabel(new Date(`${day.dateKey}T12:00:00Z`));
-  return (
-    <section className="min-w-0">
-      {showDayHeading && (
-        <h2 className="mb-3 border-b border-cocoa-100 pb-1.5 text-base font-semibold text-cocoa-900">{heading}</h2>
-      )}
-      {day.pickup.length > 0 && (
-        <Subsection label="Pickup Orders" count={day.pickup.length}>
-          {day.pickup.map((o) => (
-            <OrderCard key={o.id} order={o} itemCount={itemCounts[o.id]} showDate={showDayHeading} onActioned={onActioned} />
-          ))}
-        </Subsection>
-      )}
-      {day.delivery.length > 0 && (
-        <Subsection label="Delivery Orders" count={day.delivery.length}>
-          {day.delivery.map((o) => (
-            <OrderCard key={o.id} order={o} itemCount={itemCounts[o.id]} showDate={showDayHeading} onActioned={onActioned} />
-          ))}
-        </Subsection>
-      )}
-      {day.pickup.length === 0 && day.delivery.length === 0 && (
-        <p className="text-sm text-stone-400">No orders.</p>
-      )}
-    </section>
-  );
-}
-
-function Subsection({ label, count, children }: { label: string; count: number; children: React.ReactNode }) {
-  return (
-    <div className="mb-5 min-w-0">
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
-        {label} · {count}
-      </h3>
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">{children}</div>
     </div>
   );
 }

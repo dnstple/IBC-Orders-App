@@ -28,7 +28,7 @@ export default function LoginPage() {
         return;
       }
       // Full navigation so the fresh session cookie is used immediately.
-      window.location.assign('/today');
+      window.location.assign('/pickups');
     } catch {
       setError('Network problem — check your connection and try again.');
     } finally {

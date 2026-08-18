@@ -4,9 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { href: '/today', label: 'Today' },
-  { href: '/future', label: 'Future Orders' },
-  { href: '/past', label: 'Past Orders' },
+  { href: '/pickups', label: 'Pickups' },
+  { href: '/deliveries', label: 'Deliveries' },
   { href: '/settings', label: 'Settings' },
 ];
 
@@ -22,7 +21,7 @@ export function Nav(_props: { role?: 'staff' | 'manager' | 'admin' }) {
       aria-label="Main"
       className="ib-tabbar z-10 w-full max-w-full border-t border-cocoa-100 bg-white pb-[env(safe-area-inset-bottom)] sm:rounded-xl sm:border sm:pb-0"
     >
-      <div className="mx-auto grid w-full max-w-5xl grid-cols-4 max-[420px]:grid-cols-2">
+      <div className="mx-auto grid w-full max-w-5xl grid-cols-3">
         {TABS.map((t) => {
           const active = pathname.startsWith(t.href);
           return (

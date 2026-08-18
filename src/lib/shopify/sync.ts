@@ -236,6 +236,17 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
     internalStatus = 'acknowledged';
   }
 
+  // Finished orders aren't stored: skip importing orders that are already
+  // fulfilled/cancelled/refunded and unknown to us (history stays in
+  // Shopify). Existing rows update normally and are purged 24h after
+  // settling by the reconcile cron.
+  if (!existing && TERMINAL_STATUSES.includes(internalStatus)) {
+    return {
+      orderId: '', orderNumber: o.name, isNew: false, becamePaid: false,
+      isPickup: method === 'pickup', skippedStale: false, deleted: false, itemCount: 0,
+    };
+  }
+
   const attention =
     method === 'unknown' && !TERMINAL_STATUSES.includes(internalStatus)
       ? { flag: true, reason: 'Fulfilment method could not be determined' as string | null }

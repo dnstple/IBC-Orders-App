@@ -45,6 +45,14 @@ export async function GET(req: NextRequest) {
   const since = state.last_success ?? new Date(now - 24 * 3600000).toISOString();
   try {
     const result = await reconcileUpdatedOrders(since);
+
+    // Storage hygiene: fulfilled/cancelled/refunded orders are kept for a
+    // 24-hour grace window (in case of an accidental fulfil), then removed.
+    // Shopify remains the permanent record.
+    await db.from('orders')
+      .delete()
+      .in('internal_status', ['fulfilled', 'cancelled', 'refunded'])
+      .lt('shopify_updated_at', new Date(now - 24 * 3600000).toISOString());
     await db.from('app_settings').update({
       value: {
         ...state,
