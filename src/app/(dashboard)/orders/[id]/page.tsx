@@ -87,25 +87,47 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">
           <h2 className="font-semibold">Items</h2>
           <ul className="mt-3 divide-y divide-stone-100">
-            {lineItems.map((li) => (
-              <li key={li.id} className="flex gap-3 py-3">
-                {li.image_url
-                  ? <Image src={li.image_url} alt="" width={56} height={56} className="h-14 w-14 rounded-lg border border-stone-100 object-cover" />
-                  : <div className="h-14 w-14 rounded-lg bg-cocoa-50" />}
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium">{li.title}</div>
-                  <div className="text-sm text-stone-500">
-                    {li.variant_title && <span>{li.variant_title} · </span>}
-                    {li.sku && <span>SKU {li.sku} · </span>}
-                    Qty {li.quantity}
-                    {li.fulfilled_quantity > 0 && <span> · fulfilled {li.fulfilled_quantity}/{li.quantity}</span>}
-                    {li.refunded_quantity > 0 && <span className="text-red-600"> · {li.refunded_quantity} removed/refunded</span>}
+            {lineItems.map((li) => {
+              const lineTotal = li.unit_price != null ? li.unit_price * li.quantity : null;
+              const partial = li.fulfilled_quantity > 0 && li.fulfilled_quantity < li.quantity;
+              return (
+                <li key={li.id} className="flex gap-3 py-3">
+                  {li.image_url
+                    ? <Image src={li.image_url} alt="" width={56} height={56} className="h-14 w-14 rounded-lg border border-stone-100 object-cover" />
+                    : <div className="h-14 w-14 rounded-lg bg-cocoa-50" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className="mt-0.5 shrink-0 rounded-md bg-cocoa-700 px-2 py-0.5 text-sm font-bold text-white">
+                        ×{li.quantity}
+                      </span>
+                      <span className="min-w-0 break-words text-base font-semibold text-cocoa-900">{li.title}</span>
+                    </div>
+                    {li.variant_title && li.variant_title !== 'Default Title' && (
+                      <div className="mt-0.5 text-sm text-stone-500">{li.variant_title}</div>
+                    )}
+                    <LineItemProperties properties={li.properties} />
+                    {partial && (
+                      <div className="mt-1 text-xs font-semibold text-violet-700">
+                        Partially fulfilled — {li.fulfilled_quantity} of {li.quantity}
+                      </div>
+                    )}
+                    {li.refunded_quantity > 0 && (
+                      <div className="mt-1 text-xs font-semibold text-red-600">
+                        {li.refunded_quantity} removed/refunded
+                      </div>
+                    )}
                   </div>
-                  <LineItemProperties properties={li.properties} />
-                </div>
-                <div className="text-sm text-stone-600">{li.unit_price != null ? `£${li.unit_price.toFixed(2)}` : ''}</div>
-              </li>
-            ))}
+                  <div className="shrink-0 text-right">
+                    <div className="text-base font-semibold text-cocoa-900">
+                      {lineTotal != null ? `£${lineTotal.toFixed(2)}` : ''}
+                    </div>
+                    {li.quantity > 1 && li.unit_price != null && (
+                      <div className="text-xs text-stone-400">£{li.unit_price.toFixed(2)} each</div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
 
@@ -132,9 +154,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
               <span className="font-medium">Customer note:</span> {o.note}
             </div>
           )}
-          {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup') && !a.name.startsWith('_')).length > 0 && (
+          {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup') && !/^_|linked.*key|\bsku\b|variant\s*id/i.test(a.name) && a.value?.trim() && a.value.trim() !== 'Default Title').length > 0 && (
             <div className="mt-3 min-w-0 text-sm text-stone-600 [overflow-wrap:anywhere]">
-              {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup') && !a.name.startsWith('_')).map((a) => (
+              {o.note_attributes.filter((a) => !a.name.startsWith('ibc_pickup') && !/^_|linked.*key|\bsku\b|variant\s*id/i.test(a.name) && a.value?.trim() && a.value.trim() !== 'Default Title').map((a) => (
                 <div key={a.name}><span className="text-stone-400">{a.name}:</span> {a.value}</div>
               ))}
             </div>
@@ -215,7 +237,14 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
  * - Everything wraps hard so long values can never push the page sideways.
  */
 function LineItemProperties({ properties }: { properties: Array<{ name: string; value: string }> }) {
-  const visible = properties.filter((p) => !p.name.startsWith('_') && p.value?.trim());
+  // Junk filter: hidden/technical properties (underscore-prefixed, linked
+  //  add-on/cake keys, SKUs, variant IDs) and meaningless "Default Title"
+  //  values never reach staff eyes.
+  const JUNK_NAME = /^_|linked.*key|\bsku\b|variant\s*id/i;
+  const visible = properties
+    .filter((p) => !JUNK_NAME.test(p.name))
+    .map((p) => ({ name: p.name, value: (p.value ?? '').replace(/\s*-\s*Default Title$/i, '').trim() }))
+    .filter((p) => p.value && p.value !== 'Default Title');
   if (visible.length === 0) return null;
 
   const asSelectionList = (value: string): string[] | null => {
