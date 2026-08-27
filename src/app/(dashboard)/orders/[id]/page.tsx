@@ -9,6 +9,7 @@ import { orderChips } from '@/lib/orders-view';
 import { formatLondonFull, formatLondonDate } from '@/lib/dates';
 import { ActionsPanel } from '@/components/ActionsPanel';
 import { BackButton } from '@/components/BackButton';
+import { cleanLineItemProperties, asSelectionList } from '@/lib/line-item-props';
 
 export default async function OrderDetailPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -228,29 +229,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
   );
 }
 
-/**
- * Line-item properties, made operational:
- * - Hidden technical properties (underscore-prefixed, e.g. the gift-box
- *   app's "_Gift Box Selection JSON") are never shown.
- * - Selection lists like "2 × Praline Coffee, 1 × Truffle Milk, …" are
- *   split onto one line per flavour with its count.
- * - Everything wraps hard so long values can never push the page sideways.
- */
 function LineItemProperties({ properties }: { properties: Array<{ name: string; value: string }> }) {
-  // Junk filter: hidden/technical properties (underscore-prefixed, linked
-  //  add-on/cake keys, SKUs, variant IDs) and meaningless "Default Title"
-  //  values never reach staff eyes.
-  const JUNK_NAME = /^_|linked.*key|\bsku\b|variant\s*id/i;
-  const visible = properties
-    .filter((p) => !JUNK_NAME.test(p.name))
-    .map((p) => ({ name: p.name, value: (p.value ?? '').replace(/\s*-\s*Default Title$/i, '').trim() }))
-    .filter((p) => p.value && p.value !== 'Default Title');
+  const visible = cleanLineItemProperties(properties);
   if (visible.length === 0) return null;
-
-  const asSelectionList = (value: string): string[] | null => {
-    const parts = value.split(/,\s+(?=\d+\s*[×x]\s)/).map((x) => x.trim()).filter(Boolean);
-    return parts.length >= 2 && parts.every((x) => /^\d+\s*[×x]\s/.test(x)) ? parts : null;
-  };
 
   return (
     <div className="mt-1 min-w-0 space-y-1 text-xs text-amber-800 [overflow-wrap:anywhere]">

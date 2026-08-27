@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { OrderRow, FulfillmentGroupRow, LineItemRow } from '@/types/db';
 import { toast } from '@/components/Toaster';
+import { PackingFlow } from '@/components/PackingFlow';
 
 /**
  * Order workflow (server-enforced; buttons are convenience):
@@ -25,7 +26,7 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<'fulfill' | 'courier' | null>(null);
+  const [modal, setModal] = useState<'fulfill' | 'courier' | 'packing' | null>(null);
 
   const isPickup = order.pickup_requested || order.fulfillment_method === 'pickup';
   const isDelivery = !isPickup && ['local_delivery', 'shipping'].includes(order.fulfillment_method);
@@ -113,17 +114,24 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
         </button>
       )}
 
-      {/* Delivery path */}
+      {/* Delivery path: guided packing flow reduces packing errors */}
       {isDelivery && status === 'acknowledged' && (
-        <button className={secondary} disabled={busy !== null}
-          onClick={() => call('prep', `/api/orders/${order.id}/status`, { status: 'preparing' }, `${order.order_number} → preparing`)}>
-          {busy === 'prep' ? 'Updating…' : 'Start preparing'}
+        <button className={primary} disabled={busy !== null}
+          onClick={async () => {
+            const ok = await call('prep', `/api/orders/${order.id}/status`, { status: 'preparing' });
+            if (ok) setModal('packing');
+          }}>
+          {busy === 'prep' ? 'Updating…' : 'Prepare order'}
         </button>
       )}
+      {isDelivery && status === 'acknowledged' && (
+        <p className="text-xs text-stone-400">
+          Walks through every item one by one to confirm it&apos;s in the box.
+        </p>
+      )}
       {isDelivery && status === 'preparing' && (
-        <button className={secondary} disabled={busy !== null}
-          onClick={() => call('packed', `/api/orders/${order.id}/status`, { status: 'packed' }, `${order.order_number} → packed`)}>
-          {busy === 'packed' ? 'Updating…' : 'Mark packed'}
+        <button className={primary} disabled={busy !== null} onClick={() => setModal('packing')}>
+          Continue packing…
         </button>
       )}
       {isDelivery && ['preparing', 'packed'].includes(status) && (
@@ -151,6 +159,21 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
         </div>
       )}
 
+      {modal === 'packing' && (
+        <PackingFlow
+          order={order}
+          lineItems={lineItems}
+          busy={busy === 'packed'}
+          onClose={() => setModal(null)}
+          onComplete={async () => {
+            // Open Shopify first (same user gesture → not popup-blocked),
+            // then persist the packed state.
+            window.open(order.shopify_admin_url, '_blank', 'noopener');
+            const ok = await call('packed', `/api/orders/${order.id}/status`, { status: 'packed' }, `${order.order_number} packed — print the label in Shopify`);
+            if (ok) setModal(null);
+          }}
+        />
+      )}
       {modal === 'fulfill' && (
         <FulfillModal
           order={order} groups={groups} lineItems={lineItems}
