@@ -134,6 +134,11 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           Continue packing…
         </button>
       )}
+      {isDelivery && ['packed', 'courier_booked'].includes(status) && (
+        <button className={secondary} disabled={busy !== null} onClick={() => setModal('packing')}>
+          Re-check packing…
+        </button>
+      )}
       {isDelivery && ['preparing', 'packed'].includes(status) && (
         <button className={secondary} disabled={busy !== null} onClick={() => setModal('courier')}>
           Courier booked…
@@ -166,11 +171,17 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           busy={busy === 'packed'}
           onClose={() => setModal(null)}
           onComplete={async () => {
-            // Open Shopify first (same user gesture → not popup-blocked),
-            // then persist the packed state.
+            // Open Shopify first (same user gesture → not popup-blocked).
             window.open(order.shopify_admin_url, '_blank', 'noopener');
-            const ok = await call('packed', `/api/orders/${order.id}/status`, { status: 'packed' }, `${order.order_number} packed — print the label in Shopify`);
-            if (ok) setModal(null);
+            if (status === 'preparing') {
+              const ok = await call('packed', `/api/orders/${order.id}/status`, { status: 'packed' }, `${order.order_number} packed — print the label in Shopify`);
+              if (ok) setModal(null);
+            } else {
+              // Re-check of an already packed/booked order: confirm without
+              // touching the saved status.
+              toast(`${order.order_number} re-checked — all items confirmed`, 'success');
+              setModal(null);
+            }
           }}
         />
       )}
