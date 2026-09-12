@@ -90,3 +90,41 @@ export function parsePickupAttrs(attrs: NamedAttr[]): PickupAttrs {
     delayMinutes: delay,
   };
 }
+
+/* ── Full fulfilment-choice contract (storefront cart attributes) ────────
+ * Three valid shapes:
+ *   standard delivery  → delivery_method=delivery, delivery_option=standard.
+ *                        NO date exists — never invent one, never fall back
+ *                        to the order date.
+ *   scheduled delivery → + delivery_date (YYYY-MM-DD wall-clock, a REQUEST
+ *                        not a promise) and delivery_label (display only).
+ *   collection         → ibc_pickup_* keys (parsed above).
+ * delivery_method is absent on every order before the picker shipped, so
+ * ibc_pickup_requested === "true" (strict — "false" exists on live orders)
+ * remains a pickup signal on its own.
+ */
+
+export interface FulfilmentAttrs {
+  /** 'delivery' | 'pickup' from the picker; null on historical orders. */
+  deliveryMethod: 'delivery' | 'pickup' | null;
+  option: 'standard' | 'scheduled' | null;
+  /** Requested delivery day, YYYY-MM-DD wall-clock. Scheduled only. */
+  deliveryDate: string | null;
+  deliveryLabel: string | null;
+  pickup: PickupAttrs;
+}
+
+export function parseFulfilmentAttrs(attrs: NamedAttr[]): FulfilmentAttrs {
+  const pickup = parsePickupAttrs(attrs);
+  const dm = attrValue(attrs, 'delivery_method');
+  const rawOpt = attrValue(attrs, 'delivery_option');
+  const option = rawOpt === 'standard' || rawOpt === 'scheduled' ? rawOpt : null;
+  const deliveryDate = option === 'scheduled' ? validDate(attrValue(attrs, 'delivery_date')) : null;
+  return {
+    deliveryMethod: dm === 'pickup' ? 'pickup' : dm === 'delivery' ? 'delivery' : null,
+    option,
+    deliveryDate,
+    deliveryLabel: deliveryDate ? attrValue(attrs, 'delivery_label') : null,
+    pickup,
+  };
+}

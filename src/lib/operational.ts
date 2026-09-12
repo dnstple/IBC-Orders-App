@@ -36,7 +36,37 @@ export function isPickupOrder(o: OrderRow): boolean {
 export function operationalDateKey(o: OrderRow): string {
   if (o.operational_date) return o.operational_date;
   if (isPickupOrder(o) && o.pickup_date) return o.pickup_date;
+  if (!isPickupOrder(o) && o.delivery_date) return o.delivery_date;
   return londonDateKey(new Date(o.shopify_created_at));
+}
+
+/* ── Delivery scheduling (storefront picker) ───────────────────────────── */
+
+export type DeliveryKind = 'scheduled' | 'standard' | 'none';
+
+/**
+ * How to present a delivery order's "when":
+ * - scheduled: the customer REQUESTED a day (a request, not a promise).
+ * - standard:  2–3 business-day window — there is no date; never invent one.
+ * - none:      order predates the fulfilment picker; nothing was specified.
+ */
+export function deliveryInfo(o: OrderRow): { kind: DeliveryKind; label: string | null; date: string | null } {
+  if (o.delivery_date) {
+    return { kind: 'scheduled', label: o.delivery_label, date: o.delivery_date };
+  }
+  if (o.delivery_option === 'standard') {
+    return { kind: 'standard', label: null, date: null };
+  }
+  // Legacy note-attribute delivery dates still count as a requested day.
+  if (o.date_source === 'note_attribute' || o.date_source === 'note_attribute_date_only') {
+    return { kind: 'scheduled', label: null, date: o.operational_date };
+  }
+  return { kind: 'none', label: null, date: null };
+}
+
+/** True when a delivery order has no requested day (sorts/groups last). */
+export function isUndatedDelivery(o: OrderRow): boolean {
+  return !isPickupOrder(o) && deliveryInfo(o).kind !== 'scheduled';
 }
 
 /** Compact slot display: "3:30–4:00pm" (falls back to start time only). */

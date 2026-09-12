@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import type { OrderRow, LineItemRow } from '@/types/db';
-import { isPickupOrder, sortPickup, sortDelivery, operationalDateKey } from '@/lib/operational';
+import { isPickupOrder, sortPickup, sortDelivery, operationalDateKey, isUndatedDelivery } from '@/lib/operational';
 import { dayGroupLabel, formatLondonDate, formatLondonFull, londonDateKey } from '@/lib/dates';
 import { OrderCard } from '@/components/OrderCard';
 import { useRealtimeOrders } from '@/hooks/useRealtimeOrders';
@@ -20,6 +20,7 @@ const TERMINAL = ['fulfilled', 'cancelled', 'refunded'];
  */
 export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
+  const [range, setRange] = useState<'all' | 'today' | 'tomorrow' | 'week'>('all');
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastGoodAt, setLastGoodAt] = useState<Date | null>(null);
@@ -85,10 +86,18 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
   const hasUnread = useMemo(() => visible.some((o) => o.internal_status === 'new'), [visible]);
   useNewOrderAlert(hasUnread);
 
+  /** Undated deliveries (standard shipping / pre-picker orders) have no day
+   *  they're wanted on — they group separately, after every dated day. */
+  const undated = useMemo(
+    () => (board === 'deliveries' ? sortDelivery(visible.filter(isUndatedDelivery)) : []),
+    [visible, board]
+  );
+
   /** Day groups, ascending; within each day strictly by time. */
   const days = useMemo(() => {
+    const dated = board === 'deliveries' ? visible.filter((o) => !isUndatedDelivery(o)) : visible;
     const byDay = new Map<string, OrderRow[]>();
-    for (const o of visible) {
+    for (const o of dated) {
       const key = operationalDateKey(o);
       const list = byDay.get(key) ?? [];
       list.push(o);
@@ -101,6 +110,18 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
         orders: board === 'pickups' ? sortPickup(list) : sortDelivery(list),
       }));
   }, [visible, board]);
+
+  /** Needed-when filter: Today includes overdue; This week = next 7 days. */
+  const todayKey = londonDateKey(new Date());
+  const tomorrowKey = londonDateKey(new Date(Date.now() + 86400000));
+  const weekEndKey = londonDateKey(new Date(Date.now() + 6 * 86400000));
+  const filteredDays = useMemo(() => {
+    if (range === 'today') return days.filter((d) => d.dateKey <= todayKey);
+    if (range === 'tomorrow') return days.filter((d) => d.dateKey === tomorrowKey);
+    if (range === 'week') return days.filter((d) => d.dateKey <= weekEndKey);
+    return days;
+  }, [days, range, todayKey, tomorrowKey, weekEndKey]);
+  const showUndated = range === 'all' && undated.length > 0;
 
   if (orders === null && loadError) {
     return (
@@ -126,10 +147,30 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
     );
   }
 
-  const todayKey = londonDateKey(new Date());
+  const rangeChip = (value: typeof range, label: string) => (
+    <button
+      key={value}
+      onClick={() => setRange(value)}
+      aria-pressed={range === value}
+      className={`min-h-9 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+        range === value
+          ? 'bg-cocoa-700 text-white'
+          : 'border border-stone-200 bg-white text-stone-600 hover:border-cocoa-500'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="w-full max-w-full space-y-8">
+      {/* Needed-when filter — the fulfilment question, not the order date */}
+      <div className="flex flex-wrap gap-2">
+        {rangeChip('all', 'All')}
+        {rangeChip('today', 'Needed today')}
+        {rangeChip('tomorrow', 'Needed tomorrow')}
+        {rangeChip('week', 'This week')}
+      </div>
       {loadError && (
         <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
           <span className="min-w-0 flex-1 break-words">
@@ -141,12 +182,12 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
           </button>
         </div>
       )}
-      {days.length === 0 && (
+      {filteredDays.length === 0 && !showUndated && (
         <div className="rounded-xl border border-cocoa-100 bg-white p-10 text-center text-stone-500">
-          No open {board === 'pickups' ? 'pickup' : 'delivery'} orders. 🎉
+          No open {board === 'pickups' ? 'pickup' : 'delivery'} orders{range !== 'all' ? ' in this period' : ''}. 🎉
         </div>
       )}
-      {days.map(({ dateKey, orders: dayOrders }) => {
+      {filteredDays.map(({ dateKey, orders: dayOrders }) => {
         const overdue = dateKey < todayKey;
         const label = overdue
           ? `Overdue — ${formatLondonDate(new Date(`${dateKey}T12:00:00Z`))}`
@@ -166,6 +207,20 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
           </section>
         );
       })}
+
+      {/* Standard shipping / pre-picker orders: no requested day exists */}
+      {showUndated && (
+        <section className="min-w-0">
+          <h2 className="mb-3 border-b border-cocoa-100 pb-1.5 text-base font-semibold text-cocoa-900">
+            No requested date — standard shipping <span className="font-normal text-stone-400">· {undated.length}</span>
+          </h2>
+          <div className={GRID}>
+            {undated.map((o) => (
+              <OrderCard key={o.id} order={o} itemCount={itemCounts[o.id]} showDate={false} onActioned={() => void load()} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

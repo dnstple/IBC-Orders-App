@@ -52,8 +52,12 @@ export interface OrderRow {
   pickup_slot_end: string | null;
   pickup_slot_label: string | null;
   pickup_delay_minutes: number | null;
-  /** London-local day driving Today/Future/Past grouping. */
+  /** London-local day driving board grouping. */
   operational_date: string;
+  /* Delivery scheduling (storefront fulfilment picker) */
+  delivery_option: 'standard' | 'scheduled' | null;
+  delivery_date: string | null;   // requested day — a request, not a promise
+  delivery_label: string | null;  // display form, e.g. 'Sat 20th Sept'
   pickup_slot_id: string | null;
   internal_status: InternalStatus;
   acknowledged_at: string | null;

@@ -3,7 +3,7 @@ import { ORDER_FULL_QUERY } from '@/lib/shopify/queries';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { audit } from '@/lib/audit';
 import { londonWallTimeToUtc, londonDateKey, parseFlexibleDate, parseFlexibleTime } from '@/lib/dates';
-import { parsePickupAttrs, type PickupAttrs } from '@/lib/pickup-attrs';
+import { parseFulfilmentAttrs, type FulfilmentAttrs } from '@/lib/pickup-attrs';
 import type { FulfillmentMethod, InternalStatus } from '@/types/db';
 import { TERMINAL_STATUSES } from '@/types/db';
 
@@ -81,12 +81,17 @@ export interface SyncResult {
 const gidToLegacyId = (gid: string) => Number(gid.split('/').pop());
 
 /* ── Fulfilment-method classification ─────────────────────────────────── */
-function classifyMethod(ffos: ShopifyFulfillmentOrder[], pickupAttrs: PickupAttrs): FulfillmentMethod {
-  // The pickup scheduler is authoritative when present.
-  if (pickupAttrs.requested) return 'pickup';
+function classifyMethod(ffos: ShopifyFulfillmentOrder[], fulfil: FulfilmentAttrs): FulfillmentMethod {
+  // The storefront picker is authoritative when present. Collection is
+  // signalled by delivery_method=pickup OR (on historical orders, where
+  // delivery_method is absent) ibc_pickup_requested === "true".
+  if (fulfil.deliveryMethod === 'pickup' || fulfil.pickup.requested) return 'pickup';
   const types = new Set(
     ffos.map((f) => f.deliveryMethod?.methodType).filter((t): t is string => !!t)
   );
+  if (fulfil.deliveryMethod === 'delivery') {
+    return types.has('LOCAL') ? 'local_delivery' : 'shipping';
+  }
   if (types.has('PICK_UP') || types.has('PICKUP_POINT')) return 'pickup';
   if (types.has('LOCAL')) return 'local_delivery';
   if (types.has('SHIPPING')) return 'shipping';
@@ -116,11 +121,12 @@ function findAttr(attrs: Array<{ key: string; value: string | null }>, keys: str
 
 function deriveDates(
   method: FulfillmentMethod,
-  pickup: PickupAttrs,
+  fulfil: FulfilmentAttrs,
   attrs: Array<{ key: string; value: string | null }>,
   createdAt: string,
   keys: DateKeys
 ): Derived {
+  const pickup = fulfil.pickup;
   // 1. Pickup scheduler slot — highest priority, fully confirmed.
   if (pickup.requested && pickup.slotStart) {
     return {
@@ -142,7 +148,29 @@ function deriveDates(
     };
   }
 
-  // 3. Legacy note-attribute keys (kept for older orders).
+  // 3. Scheduled delivery: the customer's REQUESTED day (never a promise —
+  //    a plain wall-clock date, no time, so it's never "confirmed").
+  if (fulfil.option === 'scheduled' && fulfil.deliveryDate) {
+    return {
+      at: londonWallTimeToUtc(fulfil.deliveryDate, '00:00').toISOString(),
+      confirmed: false,
+      source: 'delivery_scheduled',
+      operationalDate: fulfil.deliveryDate,
+    };
+  }
+  // 4. Standard delivery: there is NO date. The customer was promised a
+  //    2–3 business-day window, not a day — never invent one. The created
+  //    date is stored only for internal grouping; the UI shows "no date".
+  if (fulfil.option === 'standard') {
+    return {
+      at: createdAt,
+      confirmed: false,
+      source: 'delivery_standard',
+      operationalDate: londonDateKey(new Date(createdAt)),
+    };
+  }
+
+  // 5. Legacy note-attribute keys (kept for older orders).
   const dateKeys = method === 'pickup' ? keys.pickup_date : keys.delivery_date;
   const timeKeys = method === 'pickup' ? keys.pickup_time : keys.delivery_time;
   const rawDate = findAttr(attrs, dateKeys);
@@ -158,7 +186,7 @@ function deriveDates(
     };
   }
 
-  // 4. Fallback: order creation. For delivery this IS the operational date
+  // 6. Fallback: order creation. For delivery this IS the operational date
   //    (spec: delivery uses order creation date); for pickup it surfaces
   //    as "Collection time TBC".
   return {
@@ -207,10 +235,11 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
   }
 
   const attrs = o.customAttributes.map((a) => ({ key: a.key, value: a.value }));
-  const pickupAttrs = parsePickupAttrs(attrs);
-  const method = classifyMethod(o.fulfillmentOrders.nodes, pickupAttrs);
+  const fulfilAttrs = parseFulfilmentAttrs(attrs);
+  const pickupAttrs = fulfilAttrs.pickup;
+  const method = classifyMethod(o.fulfillmentOrders.nodes, fulfilAttrs);
   const keys = await loadDateKeys();
-  const derived = deriveDates(method, pickupAttrs, attrs, o.createdAt, keys);
+  const derived = deriveDates(method, fulfilAttrs, attrs, o.createdAt, keys);
 
   // Reconcile internal status with Shopify truth. Shopify-terminal states
   // always win; otherwise staff progress is preserved.
@@ -297,6 +326,9 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
     pickup_slot_end: pickupAttrs.slotEnd ? new Date(pickupAttrs.slotEnd).toISOString() : null,
     pickup_slot_label: pickupAttrs.slotLabel,
     pickup_delay_minutes: pickupAttrs.delayMinutes,
+    delivery_option: fulfilAttrs.option,
+    delivery_date: fulfilAttrs.deliveryDate,
+    delivery_label: fulfilAttrs.deliveryLabel,
     internal_status: internalStatus,
     needs_attention: attention.flag,
     needs_attention_reason: attention.reason,

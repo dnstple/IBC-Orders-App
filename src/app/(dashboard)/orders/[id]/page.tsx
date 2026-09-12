@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import { supabaseServer } from '@/lib/supabase/server';
 import type { OrderRow, LineItemRow, FulfillmentGroupRow, OrderEventRow } from '@/types/db';
-import { toOperationalOrder, statusBadgeClass } from '@/lib/operational';
+import { toOperationalOrder, statusBadgeClass, deliveryInfo } from '@/lib/operational';
 import { Chips } from '@/components/Chips';
 import { Countdown } from '@/components/Countdown';
 import { orderChips } from '@/lib/orders-view';
@@ -81,8 +81,51 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
             {o.pickup_delay_minutes != null && (
               <p className="mt-1 text-sm text-cocoa-700">Preparation lead time: {o.pickup_delay_minutes} min</p>
             )}
+            {(() => {
+              // Legacy widget wrote an address + map link on early orders
+              // (e.g. #1054) — show them when present, never require them.
+              const addr = o.note_attributes.find((a) => a.name === 'ibc_pickup_address')?.value;
+              const map = o.note_attributes.find((a) => a.name === 'ibc_pickup_map_url')?.value;
+              if (!addr && !map) return null;
+              return (
+                <p className="mt-1 text-sm text-cocoa-700">
+                  {addr}
+                  {map && (
+                    <> · <a href={map} target="_blank" rel="noreferrer" className="underline">map</a></>
+                  )}
+                </p>
+              );
+            })()}
           </section>
         )}
+
+        {/* Delivery — the requested day is a request, not a promise */}
+        {!isPickup && (() => {
+          const d = deliveryInfo(o);
+          return (
+            <section className="rounded-xl border-2 border-sky-300 bg-sky-50/50 p-5">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-sky-800">Delivery</h2>
+              {d.kind === 'scheduled' && (
+                <>
+                  <p className="mt-1 text-lg font-semibold text-sky-900">
+                    {d.label ?? (d.date ? formatLondonDate(new Date(`${d.date}T12:00:00Z`)) : '')}
+                  </p>
+                  <p className="mt-1 text-sm text-sky-800">
+                    Requested delivery date — this is the day the customer asked for, not a guaranteed arrival date.
+                  </p>
+                </>
+              )}
+              {d.kind === 'standard' && (
+                <p className="mt-1 text-lg font-semibold text-sky-900">
+                  Standard shipping — 2–3 business days <span className="text-sm font-normal">(no date requested)</span>
+                </p>
+              )}
+              {d.kind === 'none' && (
+                <p className="mt-1 text-lg text-sky-900">Not specified <span className="text-sm">(order predates the fulfilment picker)</span></p>
+              )}
+            </section>
+          );
+        })()}
 
         {/* Line items */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">

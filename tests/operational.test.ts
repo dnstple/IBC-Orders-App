@@ -25,6 +25,7 @@ function order(overrides: Partial<OrderRow>): OrderRow {
     pickup_slot_start: null, pickup_slot_end: null, pickup_slot_label: null,
     pickup_delay_minutes: null,
     operational_date: '2026-07-04',
+    delivery_option: null, delivery_date: null, delivery_label: null,
     pickup_slot_id: null, internal_status: 'new',
     acknowledged_at: null, acknowledged_by: null, assigned_staff_id: null,
     needs_attention: false, needs_attention_reason: null,

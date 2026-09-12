@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { OrderRow } from '@/types/db';
-import { toOperationalOrder, statusBadgeClass, dueState } from '@/lib/operational';
+import { toOperationalOrder, statusBadgeClass, dueState, deliveryInfo } from '@/lib/operational';
 import { formatLondonDate } from '@/lib/dates';
 import { toast } from '@/components/Toaster';
 
@@ -130,9 +130,30 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
               Pickup time unavailable
             </span>
           )
-        ) : (
-          <span className="text-stone-600">{op.operationalTime ?? 'Order time unavailable'}</span>
-        )}
+        ) : (() => {
+          const d = deliveryInfo(order);
+          if (d.kind === 'scheduled') {
+            return (
+              <>
+                <span className="font-semibold text-cocoa-900">
+                  {d.label ?? (d.date ? formatLondonDate(new Date(`${d.date}T12:00:00Z`)) : '')}
+                </span>
+                <span className="ml-1.5 text-xs text-stone-400">requested date</span>
+              </>
+            );
+          }
+          if (d.kind === 'standard') {
+            return (
+              <>
+                <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600 ring-1 ring-stone-200">
+                  Standard — no date
+                </span>
+                <span className="ml-1.5 text-xs text-stone-500">{op.operationalTime}</span>
+              </>
+            );
+          }
+          return <span className="text-stone-600">{op.operationalTime ?? 'Order time unavailable'}</span>;
+        })()}
       </div>
 
       {/* Row 3: customer · items · total */}
