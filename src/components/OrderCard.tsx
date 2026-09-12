@@ -52,6 +52,7 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
 
   const money = order.total != null ? `£${order.total.toFixed(2)}` : 'Order total unavailable';
   const dateLabel = op.operationalDate ? formatLondonDate(new Date(`${op.operationalDate}T12:00:00Z`)) : 'Date unavailable';
+  const dInfo = !isPickup ? deliveryInfo(order) : null;
 
   async function acknowledge(e: React.MouseEvent) {
     e.stopPropagation();
@@ -121,39 +122,34 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
 
       {/* Row 2: date · time */}
       <div className="mt-2 min-w-0 break-words text-sm">
-        {showDate && <span className="text-stone-600">{dateLabel} · </span>}
+        {/* The date is the headline on every tile. */}
         {isPickup ? (
-          op.operationalTime ? (
-            <span className="font-semibold text-cocoa-900">{op.operationalTime}</span>
-          ) : (
-            <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600 ring-1 ring-stone-200">
-              Pickup time unavailable
-            </span>
-          )
-        ) : (() => {
-          const d = deliveryInfo(order);
-          if (d.kind === 'scheduled') {
-            return (
-              <>
-                <span className="font-semibold text-cocoa-900">
-                  {d.label ?? (d.date ? formatLondonDate(new Date(`${d.date}T12:00:00Z`)) : '')}
-                </span>
-                <span className="ml-1.5 text-xs text-stone-400">requested date</span>
-              </>
-            );
-          }
-          if (d.kind === 'standard') {
-            return (
-              <>
+          <>
+            {showDate && <span className="font-semibold text-cocoa-900">{dateLabel}</span>}
+            {op.operationalTime ? (
+              <span className="font-semibold text-cocoa-900">{showDate ? ' · ' : ''}{op.operationalTime}</span>
+            ) : (
+              <span className={showDate ? 'ml-1.5' : ''}>
                 <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600 ring-1 ring-stone-200">
-                  Standard — no date
+                  Pickup time unavailable
                 </span>
-                <span className="ml-1.5 text-xs text-stone-500">{op.operationalTime}</span>
-              </>
-            );
-          }
-          return <span className="text-stone-600">{op.operationalTime ?? 'Order time unavailable'}</span>;
-        })()}
+              </span>
+            )}
+          </>
+        ) : dInfo?.kind === 'scheduled' ? (
+          <span className="font-semibold text-cocoa-900">
+            {dInfo.label ?? (dInfo.date ? formatLondonDate(new Date(`${dInfo.date}T12:00:00Z`)) : '')}
+          </span>
+        ) : dInfo?.kind === 'standard' ? (
+          <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600 ring-1 ring-stone-200">
+            Standard
+          </span>
+        ) : (
+          <>
+            {showDate && <span className="text-stone-600">{dateLabel} · </span>}
+            <span className="text-stone-600">{op.operationalTime ?? 'Order time unavailable'}</span>
+          </>
+        )}
       </div>
 
       {/* Row 3: customer · items · total */}
