@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { OrderRow } from '@/types/db';
 import { toOperationalOrder, statusBadgeClass, dueState, deliveryInfo } from '@/lib/operational';
-import { formatLondonDate } from '@/lib/dates';
+import { isSameDayCourier, courierInfo } from '@/lib/courier';
+import { formatLondonDate, formatLondonTime } from '@/lib/dates';
 import { toast } from '@/components/Toaster';
+import { CopyTrackingButton } from '@/components/CopyTrackingButton';
 
 interface Props {
   order: OrderRow;
@@ -53,6 +55,7 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
   const money = order.total != null ? `£${order.total.toFixed(2)}` : 'Order total unavailable';
   const dateLabel = op.operationalDate ? formatLondonDate(new Date(`${op.operationalDate}T12:00:00Z`)) : 'Date unavailable';
   const dInfo = !isPickup ? deliveryInfo(order) : null;
+  const courier = isSameDayCourier(order) ? courierInfo(order) : null;
 
   async function acknowledge(e: React.MouseEvent) {
     e.stopPropagation();
@@ -100,10 +103,14 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
         <span className="text-base font-semibold text-cocoa-900">{op.orderNumber}</span>
         <span
           className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${
-            isPickup ? 'bg-cocoa-50 text-cocoa-700 ring-cocoa-100' : 'bg-sky-50 text-sky-800 ring-sky-200'
+            isPickup
+              ? 'bg-cocoa-50 text-cocoa-700 ring-cocoa-100'
+              : courier
+                ? 'bg-orange-50 text-orange-800 ring-orange-200'
+                : 'bg-sky-50 text-sky-800 ring-sky-200'
           }`}
         >
-          {isPickup ? 'Pickup' : 'Delivery'}
+          {isPickup ? 'Pickup' : courier ? 'Courier' : 'Delivery'}
         </span>
         {due === 'due_soon' && (
           <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-300">
@@ -136,6 +143,23 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
               </span>
             )}
           </>
+        ) : courier ? (
+          <>
+            <span className="font-semibold text-cocoa-900">
+              {courier.estimatedPickupAt
+                ? `Ready ${formatLondonTime(new Date(courier.estimatedPickupAt))}`
+                : 'Ready time unknown'}
+            </span>
+            {courier.etaSource === 'courier' && (
+              <span className="ml-1 rounded bg-orange-100 px-1 py-0.5 text-[10px] font-semibold text-orange-800">
+                courier ETA
+              </span>
+            )}
+            <span className="ml-1 text-stone-600">
+              → {courier.deadlineLabel ??
+                (courier.deadlineAt ? `by ${formatLondonTime(new Date(courier.deadlineAt))}` : 'same day')}
+            </span>
+          </>
         ) : dInfo?.kind === 'scheduled' ? (
           <span className="font-semibold text-cocoa-900">
             {dInfo.label ?? (dInfo.date ? formatLondonDate(new Date(`${dInfo.date}T12:00:00Z`)) : '')}
@@ -154,7 +178,12 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
 
       {/* Row 3: customer · items · total */}
       <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
-        <span className="min-w-0 truncate font-medium">{order.customer_name?.trim() || 'Guest customer'}</span>
+        <span className="min-w-0 truncate font-medium">
+          {order.customer_name?.trim() || 'Guest customer'}
+          {courier && order.delivery_address?.zip && (
+            <span className="ml-1.5 font-semibold text-stone-600">{order.delivery_address.zip}</span>
+          )}
+        </span>
         <span className="text-stone-500">
           {itemCount != null && `${itemCount} item${itemCount === 1 ? '' : 's'} · `}
           {money}
@@ -163,6 +192,43 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
           )}
         </span>
       </div>
+
+      {/* Courier booking state — anything not booked must look like a problem */}
+      {courier && !op.isCancelled && (
+        courier.status === 'booked' ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="min-w-0 flex-1 truncate text-emerald-700">
+              🛵 {courier.riderName ?? 'Rider booked'}
+              {courier.lastStatus ? ` · ${courier.lastStatus}` : ''}
+            </span>
+            {courier.trackingUrl && (
+              <>
+                <a
+                  href={courier.trackingUrl} target="_blank" rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="min-h-9 rounded-md border border-stone-200 px-2.5 py-1 font-medium text-stone-600 hover:border-cocoa-500"
+                >
+                  Track
+                </a>
+                <CopyTrackingButton trackingUrl={courier.trackingUrl} compact />
+              </>
+            )}
+          </div>
+        ) : (
+          <div
+            role="alert"
+            className={`mt-2 rounded-lg px-3 py-2 text-xs font-semibold ${
+              courier.status === 'unbooked'
+                ? 'bg-red-600 text-white'
+                : 'bg-red-50 text-red-800 ring-1 ring-red-200'
+            }`}
+          >
+            {courier.status === 'unbooked' && '⚠ COURIER NOT BOOKED — the booking never ran. Open the order and book a rider now.'}
+            {courier.status === 'needs_review' && `Courier needs review — ${courier.note ?? 'see order for details'}`}
+            {courier.status === 'failed' && `Courier booking FAILED — ${courier.note ?? 'book manually'}`}
+          </div>
+        )
+      )}
 
       {/* Customer note indicator — content only shown inside the order,
           since notes can contain anything the customer typed */}

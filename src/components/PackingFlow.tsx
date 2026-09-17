@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import type { OrderRow, LineItemRow } from '@/types/db';
 import { cleanLineItemProperties, asSelectionList } from '@/lib/line-item-props';
+import { isDeliveryChargeLine } from '@/lib/courier';
 
 /**
  * Guided packing flow for DELIVERY orders — one product per screen, staff
@@ -19,7 +20,10 @@ export function PackingFlow({ order, lineItems, busy, onClose, onComplete }: {
   onClose: () => void;
   onComplete: () => void;
 }) {
-  const items = lineItems.filter((li) => li.quantity - li.refunded_quantity > 0);
+  // The delivery-charge line (SKU IBC-DEL-*) is not a thing — never pack it.
+  const items = lineItems.filter(
+    (li) => li.quantity - li.refunded_quantity > 0 && !isDeliveryChargeLine(li.sku)
+  );
   const [step, setStep] = useState(0); // 0..items.length-1 = items, items.length = review
   const atReview = step >= items.length;
 

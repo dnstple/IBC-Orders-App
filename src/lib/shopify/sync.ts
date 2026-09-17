@@ -60,7 +60,10 @@ interface ShopifyFulfillmentOrder {
   status: string;
   requestStatus: string | null;
   fulfillAt: string | null;
-  deliveryMethod: { methodType: string } | null;
+  deliveryMethod: {
+    methodType: string;
+    additionalInformation: { phone: string | null; instructions: string | null } | null;
+  } | null;
   assignedLocation: { name: string | null; address1: string | null; city: string | null; zip: string | null; location: { id: string } | null } | null;
   supportedActions: Array<{ action: string }>;
   lineItems: { nodes: Array<{ id: string; remainingQuantity: number; totalQuantity: number; lineItem: { id: string } | null }> };
@@ -148,7 +151,21 @@ function deriveDates(
     };
   }
 
-  // 3. Scheduled delivery: the customer's REQUESTED day (never a promise —
+  // 3. Same-day courier: the kitchen works to the estimated pickup time
+  //    (basket prep is already inside it — 15 min ordinarily, 75 for cake,
+  //    so a ready time well after the order is correct, not a bug).
+  if (fulfil.option === 'sameday') {
+    const day =
+      fulfil.deliveryDate ??
+      (fulfil.readyAt ? londonDateKey(new Date(fulfil.readyAt)) : londonDateKey(new Date(createdAt)));
+    return {
+      at: fulfil.readyAt ?? createdAt,
+      confirmed: Boolean(fulfil.readyAt),
+      source: 'delivery_sameday',
+      operationalDate: day,
+    };
+  }
+  // 4. Scheduled delivery: the customer's REQUESTED day (never a promise —
   //    a plain wall-clock date, no time, so it's never "confirmed").
   if (fulfil.option === 'scheduled' && fulfil.deliveryDate) {
     return {
@@ -158,7 +175,7 @@ function deriveDates(
       operationalDate: fulfil.deliveryDate,
     };
   }
-  // 4. Standard delivery: there is NO date. The customer was promised a
+  // 5. Standard delivery: there is NO date. The customer was promised a
   //    2–3 business-day window, not a day — never invent one. The created
   //    date is stored only for internal grouping; the UI shows "no date".
   if (fulfil.option === 'standard') {
@@ -170,7 +187,7 @@ function deriveDates(
     };
   }
 
-  // 5. Legacy note-attribute keys (kept for older orders).
+  // 6. Legacy note-attribute keys (kept for older orders).
   const dateKeys = method === 'pickup' ? keys.pickup_date : keys.delivery_date;
   const timeKeys = method === 'pickup' ? keys.pickup_time : keys.delivery_time;
   const rawDate = findAttr(attrs, dateKeys);
@@ -186,7 +203,7 @@ function deriveDates(
     };
   }
 
-  // 6. Fallback: order creation. For delivery this IS the operational date
+  // 7. Fallback: order creation. For delivery this IS the operational date
   //    (spec: delivery uses order creation date); for pickup it surfaces
   //    as "Collection time TBC".
   return {
@@ -372,6 +389,7 @@ export async function syncOrderFromShopify(orderGid: string): Promise<SyncResult
     status: f.status,
     request_status: f.requestStatus,
     delivery_method_type: f.deliveryMethod?.methodType ?? null,
+    delivery_info: f.deliveryMethod?.additionalInformation ?? null,
     assigned_location: f.assignedLocation ? { name: f.assignedLocation.name } : null,
     fulfill_at: f.fulfillAt,
     line_items: f.lineItems.nodes.map((n) => ({

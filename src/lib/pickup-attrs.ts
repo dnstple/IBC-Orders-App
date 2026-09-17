@@ -107,10 +107,13 @@ export function parsePickupAttrs(attrs: NamedAttr[]): PickupAttrs {
 export interface FulfilmentAttrs {
   /** 'delivery' | 'pickup' from the picker; null on historical orders. */
   deliveryMethod: 'delivery' | 'pickup' | null;
-  option: 'standard' | 'scheduled' | null;
-  /** Requested delivery day, YYYY-MM-DD wall-clock. Scheduled only. */
+  option: 'standard' | 'scheduled' | 'sameday' | null;
+  /** Requested/booked delivery day, YYYY-MM-DD wall-clock. */
   deliveryDate: string | null;
   deliveryLabel: string | null;
+  /** Same-day courier: estimated pickup instant (delivery_ready_at, falling
+   *  back to the older delivery_window_start name). ISO with offset. */
+  readyAt: string | null;
   pickup: PickupAttrs;
 }
 
@@ -118,13 +121,21 @@ export function parseFulfilmentAttrs(attrs: NamedAttr[]): FulfilmentAttrs {
   const pickup = parsePickupAttrs(attrs);
   const dm = attrValue(attrs, 'delivery_method');
   const rawOpt = attrValue(attrs, 'delivery_option');
-  const option = rawOpt === 'standard' || rawOpt === 'scheduled' ? rawOpt : null;
-  const deliveryDate = option === 'scheduled' ? validDate(attrValue(attrs, 'delivery_date')) : null;
+  const option =
+    rawOpt === 'standard' || rawOpt === 'scheduled' || rawOpt === 'sameday' ? rawOpt : null;
+  const dated = option === 'scheduled' || option === 'sameday';
+  const deliveryDate = dated ? validDate(attrValue(attrs, 'delivery_date')) : null;
+  const readyAt =
+    option === 'sameday'
+      ? validInstant(attrValue(attrs, 'delivery_ready_at')) ??
+        validInstant(attrValue(attrs, 'delivery_window_start'))
+      : null;
   return {
     deliveryMethod: dm === 'pickup' ? 'pickup' : dm === 'delivery' ? 'delivery' : null,
     option,
     deliveryDate,
-    deliveryLabel: deliveryDate ? attrValue(attrs, 'delivery_label') : null,
+    deliveryLabel: dated ? attrValue(attrs, 'delivery_label') : null,
+    readyAt,
     pickup,
   };
 }

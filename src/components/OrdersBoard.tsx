@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import type { OrderRow, LineItemRow } from '@/types/db';
-import { isPickupOrder, sortPickup, sortDelivery, operationalDateKey, isUndatedDelivery } from '@/lib/operational';
+import { isPickupOrder, sortLeaveTime, sortDelivery, operationalDateKey, isUndatedDelivery } from '@/lib/operational';
+import { isSameDayCourier, isDeliveryChargeLine } from '@/lib/courier';
 import { dayGroupLabel, formatLondonDate, formatLondonFull, londonDateKey } from '@/lib/dates';
 import { OrderCard } from '@/components/OrderCard';
 import { useRealtimeOrders } from '@/hooks/useRealtimeOrders';
@@ -47,9 +48,10 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
 
       const ids = rows.map((o) => o.id);
       if (ids.length) {
-        const { data: li } = await supabase.from('order_line_items').select('order_id, quantity').in('order_id', ids);
+        const { data: li } = await supabase.from('order_line_items').select('order_id, quantity, sku').in('order_id', ids);
         const counts: Record<string, number> = {};
-        for (const item of (li ?? []) as Pick<LineItemRow, 'order_id' | 'quantity'>[]) {
+        for (const item of (li ?? []) as Pick<LineItemRow, 'order_id' | 'quantity' | 'sku'>[]) {
+          if (isDeliveryChargeLine(item.sku)) continue; // the charge is not a thing
           counts[item.order_id] = (counts[item.order_id] ?? 0) + item.quantity;
         }
         setItemCounts(counts);
@@ -77,8 +79,16 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
   }, [load]);
   useRealtimeOrders(() => void load());
 
+  // Same-day courier orders live on the Pickups screen: a courier order is
+  // a pickup with a rider, and one screen should answer "what is leaving
+  // this building today, and when".
   const visible = useMemo(
-    () => (orders ?? []).filter((o) => !o.test && isPickupOrder(o) === (board === 'pickups')),
+    () =>
+      (orders ?? []).filter((o) => {
+        if (o.test) return false;
+        const belongsWithPickups = isPickupOrder(o) || isSameDayCourier(o);
+        return board === 'pickups' ? belongsWithPickups : !belongsWithPickups;
+      }),
     [orders, board]
   );
 
@@ -106,7 +116,7 @@ export function OrdersBoard({ board }: { board: 'pickups' | 'deliveries' }) {
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([dateKey, list]) => ({
         dateKey,
-        orders: board === 'pickups' ? sortPickup(list) : sortDelivery(list),
+        orders: board === 'pickups' ? sortLeaveTime(list) : sortDelivery(list),
       }));
   }, [visible, board]);
 

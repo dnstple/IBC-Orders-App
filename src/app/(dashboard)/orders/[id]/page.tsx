@@ -3,10 +3,12 @@ import Image from 'next/image';
 import { supabaseServer } from '@/lib/supabase/server';
 import type { OrderRow, LineItemRow, FulfillmentGroupRow, OrderEventRow } from '@/types/db';
 import { toOperationalOrder, statusBadgeClass, deliveryInfo } from '@/lib/operational';
+import { isSameDayCourier, courierInfo, isDeliveryChargeLine } from '@/lib/courier';
+import { CopyTrackingButton } from '@/components/CopyTrackingButton';
 import { Chips } from '@/components/Chips';
 import { Countdown } from '@/components/Countdown';
 import { orderChips } from '@/lib/orders-view';
-import { formatLondonFull, formatLondonDate } from '@/lib/dates';
+import { formatLondonFull, formatLondonDate, formatLondonTime } from '@/lib/dates';
 import { ActionsPanel } from '@/components/ActionsPanel';
 import { BackButton } from '@/components/BackButton';
 import { cleanLineItemProperties, asSelectionList } from '@/lib/line-item-props';
@@ -28,7 +30,11 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
 
   const o = order as OrderRow;
   const op = toOperationalOrder(o);
-  const lineItems = (items ?? []) as LineItemRow[];
+  const allLineItems = (items ?? []) as LineItemRow[];
+  // The courier charge rides as a hidden product line — it is not a thing
+  // the kitchen packs. Keep it out of the item list; show it as a charge.
+  const lineItems = allLineItems.filter((li) => !isDeliveryChargeLine(li.sku));
+  const chargeLine = allLineItems.find((li) => isDeliveryChargeLine(li.sku));
   const ffGroups = (groups ?? []) as FulfillmentGroupRow[];
   const timeline = (events ?? []) as OrderEventRow[];
   const money = (n: number | null) => (n == null ? '—' : `£${n.toFixed(2)}`);
@@ -99,8 +105,87 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
           </section>
         )}
 
+        {/* Same-day courier — a pickup with a rider; the clock is not negotiable */}
+        {!isPickup && isSameDayCourier(o) && (() => {
+          const c = courierInfo(o);
+          const localFg = ffGroups.find((g) => g.delivery_method_type === 'LOCAL');
+          const phone = localFg?.delivery_info?.phone;
+          const instructions = localFg?.delivery_info?.instructions;
+          const addrZip = (o.delivery_address?.zip ?? '').replace(/\s/g, '').toUpperCase();
+          const quotedZip = (c.quotedPostcode ?? '').replace(/\s/g, '').toUpperCase();
+          const zipMismatch = Boolean(addrZip && quotedZip && addrZip !== quotedZip);
+          return (
+            <section className="rounded-xl border-2 border-orange-300 bg-orange-50/50 p-5">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-orange-800">Same-day courier</h2>
+              <p className="mt-1 text-lg font-semibold text-cocoa-900">
+                {c.estimatedPickupAt ? `Ready for rider: ${formatLondonTime(new Date(c.estimatedPickupAt))}` : 'Ready time unknown'}
+                {c.etaSource === 'courier' && <span className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-800">courier ETA</span>}
+                {c.etaSource === 'planned' && <span className="ml-2 text-xs font-normal text-stone-500">planned</span>}
+              </p>
+              <p className="text-lg text-cocoa-900">
+                Deadline: {c.deadlineLabel ?? (c.deadlineAt ? `by ${formatLondonTime(new Date(c.deadlineAt))}` : 'same day')}
+                {c.deadlineLabel && c.deadlineAt && (
+                  <span className="ml-1.5 text-sm text-stone-500">({formatLondonTime(new Date(c.deadlineAt))})</span>
+                )}
+              </p>
+
+              {/* Booking state — the column that matters most */}
+              {c.status === 'booked' ? (
+                <p className="mt-3 text-sm text-emerald-700">
+                  🛵 Booked{c.bookedAt ? ` at ${formatLondonTime(new Date(c.bookedAt))}` : ''}
+                  {c.riderName ? ` · ${c.riderName}` : ''}
+                  {c.lastStatus ? ` · ${c.lastStatus}` : ''}
+                  {c.statusUpdatedAt ? ` (${formatLondonTime(new Date(c.statusUpdatedAt))})` : ''}
+                </p>
+              ) : (
+                <div role="alert" className={`mt-3 rounded-lg px-4 py-3 text-sm font-semibold ${
+                  c.status === 'unbooked' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-800 ring-1 ring-red-200'
+                }`}>
+                  {c.status === 'unbooked' && '⚠ NO COURIER BOOKED — the booking never ran (webhook or app failure). Book a rider in Gophr now, before this looks like an ordinary order.'}
+                  {c.status === 'needs_review' && `Courier needs review — ${c.note ?? 'no reason recorded'}. A human must act.`}
+                  {c.status === 'failed' && `Courier booking failed — ${c.note ?? 'no reason recorded'}. Book manually.`}
+                </div>
+              )}
+
+              {/* Contact + rider instructions (from the local-delivery form) */}
+              {(phone || instructions) && (
+                <div className="mt-3 space-y-1 text-sm text-cocoa-900">
+                  {phone && <p><span className="font-semibold">Customer mobile:</span> {phone}</p>}
+                  {instructions && <p><span className="font-semibold">Rider instructions:</span> {instructions}</p>}
+                </div>
+              )}
+              {zipMismatch && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Note: price was quoted for {c.quotedPostcode} but the delivery address is {o.delivery_address?.zip} — worth checking.
+                </p>
+              )}
+
+              {/* Links */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {c.trackingUrl && (
+                  <a href={c.trackingUrl} target="_blank" rel="noreferrer"
+                    className="min-h-11 rounded-lg border border-orange-300 px-4 py-2.5 text-sm font-semibold text-orange-800 hover:bg-orange-100">
+                    Track rider ↗
+                  </a>
+                )}
+                {c.jobUrl && (
+                  <a href={c.jobUrl} target="_blank" rel="noreferrer"
+                    className="min-h-11 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-700 hover:border-cocoa-500">
+                    Open job in Gophr ↗
+                  </a>
+                )}
+              </div>
+              {c.trackingUrl && (
+                <div className="mt-2">
+                  <CopyTrackingButton trackingUrl={c.trackingUrl} />
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
         {/* Delivery — the requested day is a request, not a promise */}
-        {!isPickup && (() => {
+        {!isPickup && !isSameDayCourier(o) && (() => {
           const d = deliveryInfo(o);
           return (
             <section className="rounded-xl border-2 border-sky-300 bg-sky-50/50 p-5">
@@ -213,6 +298,12 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
           <dl className="mt-2 space-y-1">
             <div className="flex justify-between"><dt className="text-stone-500">Subtotal</dt><dd>{money(o.subtotal)}</dd></div>
             <div className="flex justify-between"><dt className="text-stone-500">Delivery</dt><dd>{money(o.shipping_total)}</dd></div>
+            {chargeLine && (
+              <div className="flex justify-between">
+                <dt className="text-stone-500">Same-day courier charge</dt>
+                <dd>{chargeLine.unit_price != null ? `£${(chargeLine.unit_price * chargeLine.quantity).toFixed(2)}` : '—'}</dd>
+              </div>
+            )}
             <div className="flex justify-between"><dt className="text-stone-500">Tax</dt><dd>{money(o.tax_total)}</dd></div>
             {o.discounts.length > 0 && (
               <div className="flex justify-between text-emerald-700">

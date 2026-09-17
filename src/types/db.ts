@@ -55,7 +55,7 @@ export interface OrderRow {
   /** London-local day driving board grouping. */
   operational_date: string;
   /* Delivery scheduling (storefront fulfilment picker) */
-  delivery_option: 'standard' | 'scheduled' | null;
+  delivery_option: 'standard' | 'scheduled' | 'sameday' | null;
   delivery_date: string | null;   // requested day — a request, not a promise
   delivery_label: string | null;  // display form, e.g. 'Sat 20th Sept'
   pickup_slot_id: string | null;
@@ -97,6 +97,8 @@ export interface FulfillmentGroupRow {
   request_status: string | null;
   delivery_method_type: string | null;
   assigned_location: { name?: string } | null;
+  /** Local-delivery contact from checkout: phone + rider instructions. */
+  delivery_info: { phone?: string | null; instructions?: string | null } | null;
   fulfill_at: string | null;
   line_items: Array<{
     ffoLineItemGid: string;

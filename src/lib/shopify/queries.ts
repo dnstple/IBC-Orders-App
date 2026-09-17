@@ -59,7 +59,10 @@ export const ORDER_FULL_QUERY = /* GraphQL */ `
           status
           requestStatus
           fulfillAt
-          deliveryMethod { methodType }
+          deliveryMethod {
+            methodType
+            additionalInformation { phone instructions }
+          }
           assignedLocation {
             name
             address1

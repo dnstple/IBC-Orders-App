@@ -1,5 +1,6 @@
 import { londonDateKey, formatLondonTime, TZ } from '@/lib/dates';
 import type { OrderRow } from '@/types/db';
+import { isSameDayCourier, courierInfo } from '@/lib/courier';
 
 /**
  * OperationalOrder: the normalised, UI-facing view of an order.
@@ -42,7 +43,7 @@ export function operationalDateKey(o: OrderRow): string {
 
 /* ── Delivery scheduling (storefront picker) ───────────────────────────── */
 
-export type DeliveryKind = 'scheduled' | 'standard' | 'none';
+export type DeliveryKind = 'scheduled' | 'standard' | 'sameday' | 'none';
 
 /**
  * How to present a delivery order's "when":
@@ -51,6 +52,9 @@ export type DeliveryKind = 'scheduled' | 'standard' | 'none';
  * - none:      order predates the fulfilment picker; nothing was specified.
  */
 export function deliveryInfo(o: OrderRow): { kind: DeliveryKind; label: string | null; date: string | null } {
+  if (o.delivery_option === 'sameday') {
+    return { kind: 'sameday', label: o.delivery_label, date: o.delivery_date ?? o.operational_date };
+  }
   if (o.delivery_date) {
     return { kind: 'scheduled', label: o.delivery_label, date: o.delivery_date };
   }
@@ -64,9 +68,32 @@ export function deliveryInfo(o: OrderRow): { kind: DeliveryKind; label: string |
   return { kind: 'none', label: null, date: null };
 }
 
-/** True when a delivery order has no requested day (sorts/groups last). */
+/** True when a delivery order has no requested day (sorts/groups last).
+ *  Same-day courier orders are always dated (today) and live on the
+ *  Pickups screen, so they are never "undated". */
 export function isUndatedDelivery(o: OrderRow): boolean {
-  return !isPickupOrder(o) && deliveryInfo(o).kind !== 'scheduled';
+  const kind = deliveryInfo(o).kind;
+  return !isPickupOrder(o) && kind !== 'scheduled' && kind !== 'sameday';
+}
+
+/** Unified "leaves the building at" sort for the Pickups screen: pickup
+ *  slot start for collections, planned ready time for courier orders.
+ *  Timeless orders sort last within their day. */
+export function sortLeaveTime(orders: OrderRow[]): OrderRow[] {
+  const key = (o: OrderRow): number => {
+    if (isSameDayCourier(o)) {
+      const c = courierInfo(o);
+      const t = c.plannedReadyAt ?? c.estimatedPickupAt;
+      return t ? new Date(t).getTime() : Number.MAX_SAFE_INTEGER;
+    }
+    if (o.pickup_slot_start) return new Date(o.pickup_slot_start).getTime();
+    return Number.MAX_SAFE_INTEGER;
+  };
+  return [...orders].sort((a, b) => {
+    const ka = key(a), kb = key(b);
+    if (ka !== kb) return ka - kb;
+    return new Date(a.shopify_created_at).getTime() - new Date(b.shopify_created_at).getTime();
+  });
 }
 
 /** Compact slot display: "3:30–4:00pm" (falls back to start time only). */
@@ -210,10 +237,17 @@ export type DueState = 'due_soon' | 'due_now' | null;
  * Never set for cancelled/refunded/fulfilled orders.
  */
 export function dueState(o: OrderRow, now = new Date()): DueState {
-  if (!isPickupOrder(o) || !o.pickup_slot_start) return null;
   if (['fulfilled', 'cancelled', 'refunded'].includes(o.internal_status) || o.cancelled_at) return null;
-  const start = new Date(o.pickup_slot_start).getTime();
-  const diffMin = (start - now.getTime()) / 60000;
+  let startIso: string | null = null;
+  if (isPickupOrder(o)) {
+    startIso = o.pickup_slot_start;
+  } else if (isSameDayCourier(o)) {
+    // The rider's arrival is the courier order's "slot" — and unlike a
+    // customer, the clock is not negotiable.
+    startIso = courierInfo(o).estimatedPickupAt;
+  }
+  if (!startIso) return null;
+  const diffMin = (new Date(startIso).getTime() - now.getTime()) / 60000;
   if (diffMin <= 0) return 'due_now';
   if (diffMin <= 30) return 'due_soon';
   return null;
