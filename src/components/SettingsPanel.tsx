@@ -229,6 +229,8 @@ function AlertTimingsSection({ settings }: { settings: Setting[] }) {
     push_repeat_minutes: Number(escalation.push_repeat_minutes ?? 5),
     manager_escalation_minutes: Number(escalation.manager_escalation_minutes ?? 15),
     manager_escalation_enabled: Boolean(escalation.manager_escalation_enabled ?? false),
+    working_start_hour: Number(escalation.working_start_hour ?? 9),
+    working_end_hour: Number(escalation.working_end_hour ?? 22),
     pickup_lead_minutes: Number(reminders.pickup_lead_minutes ?? 60),
     delivery_lead_minutes: Number(reminders.delivery_lead_minutes ?? 60),
   });
@@ -261,6 +263,8 @@ function AlertTimingsSection({ settings }: { settings: Setting[] }) {
         {num('dashboard_repeat_minutes', 'Dashboard alarm repeat (min)')}
         {num('push_repeat_minutes', 'Push escalation repeat (min)')}
         {num('manager_escalation_minutes', 'Manager escalation after (min)')}
+        {num('working_start_hour', 'Alerts from (hour, 0–23)')}
+        {num('working_end_hour', 'Alerts until (hour, 0–23)')}
         <label className="flex items-end gap-2 pb-2 text-sm">
           <input type="checkbox" checked={form.manager_escalation_enabled}
             onChange={(e) => setForm({ ...form, manager_escalation_enabled: e.target.checked })} />

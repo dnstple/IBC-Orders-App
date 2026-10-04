@@ -9,6 +9,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
 
   const clamp = (v: unknown, def: number) => Math.min(Math.max(Number(v) || def, 1), 1440);
+  const clampHour = (v: unknown, def: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 0), 23) : def;
+  };
   const db = supabaseAdmin();
   const rows = [
     {
@@ -18,6 +22,8 @@ export async function POST(req: NextRequest) {
         push_repeat_minutes: clamp(body.push_repeat_minutes, 5),
         manager_escalation_minutes: clamp(body.manager_escalation_minutes, 15),
         manager_escalation_enabled: Boolean(body.manager_escalation_enabled),
+        working_start_hour: clampHour(body.working_start_hour, 9),
+        working_end_hour: clampHour(body.working_end_hour, 22),
       },
       updated_by: gate.staff.id,
     },

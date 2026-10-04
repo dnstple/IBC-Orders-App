@@ -24,6 +24,19 @@ export async function GET(req: NextRequest) {
   const mgrMins = Number(settings?.value?.manager_escalation_minutes ?? 15);
   const mgrEnabled = Boolean(settings?.value?.manager_escalation_enabled ?? false);
 
+  // Working hours (Europe/London): no acknowledge-escalation pushes outside
+  // them — nobody should be woken for an order placed overnight. The order
+  // still shows as New on the board, and escalation resumes at opening time.
+  const startHour = Number(settings?.value?.working_start_hour ?? 9);
+  const endHour = Number(settings?.value?.working_end_hour ?? 22);
+  const londonHour = Number(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false })
+      .format(new Date())
+  );
+  if (londonHour < startHour || londonHour >= endHour) {
+    return NextResponse.json({ ok: true, skipped: 'outside_working_hours', londonHour });
+  }
+
   const { data: unacked } = await db.from('orders')
     .select('id, order_number, shopify_created_at')
     .eq('internal_status', 'new')
