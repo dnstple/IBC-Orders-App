@@ -107,8 +107,14 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
         </p>
       )}
 
-      {/* Step 3 (pickup): Mark fulfilled — confirmation required */}
-      {isPickup && status === 'ready_for_pickup' && (
+      {/* Step 3 (pickup): Mark fulfilled — confirmation required.
+          Escape hatch: when Shopify has no open local-pickup fulfilment
+          order (e.g. a slot-booked order that checked out on a shipping
+          rate, like #1108), the Ready stage is impossible — offer
+          fulfilment directly instead of deadlocking the order. */}
+      {isPickup &&
+        (status === 'ready_for_pickup' ||
+          (!hasOpenPickupGroup && ['acknowledged', 'preparing'].includes(status))) && (
         <button className={primary} disabled={busy !== null} onClick={() => setModal('fulfill')}>
           Mark fulfilled…
         </button>
@@ -150,9 +156,10 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
         </button>
       )}
 
-      {isPickup && !hasOpenPickupGroup && (
+      {isPickup && !hasOpenPickupGroup && !['fulfilled', 'cancelled', 'refunded'].includes(status) && (
         <p className="pt-1 text-xs text-stone-400">
-          Ready-for-pickup unavailable: Shopify has no open local-pickup fulfilment order.
+          This pickup order checked out on a shipping rate, so Shopify&apos;s ready-for-pickup
+          step (and its customer email) isn&apos;t available — mark it fulfilled directly when collected.
         </p>
       )}
 
