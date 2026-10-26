@@ -126,3 +126,51 @@ export const ORDERS_RECENT_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+/**
+ * Packing slip read: line items with the website's allergen metafields.
+ * Keys are not symmetrical — product custom.trace_allergen (singular),
+ * variant custom.trace_allergens (plural); both are read as they exist.
+ */
+export const ORDER_SLIP_QUERY = /* GraphQL */ `
+  query OrderSlip($id: ID!) {
+    order(id: $id) {
+      name
+      lineItems(first: 100) {
+        nodes {
+          title
+          variantTitle
+          sku
+          currentQuantity
+          customAttributes { key value }
+          product {
+            pa: metafield(namespace: "custom", key: "allergens") { value }
+            pt: metafield(namespace: "custom", key: "trace_allergen") { value }
+          }
+          variant {
+            va: metafield(namespace: "custom", key: "allergens") { value }
+            vt: metafield(namespace: "custom", key: "trace_allergens") { value }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Gift box pieces' live allergens, by variant. */
+export const SLIP_VARIANTS_QUERY = /* GraphQL */ `
+  query SlipVariants($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on ProductVariant {
+        legacyResourceId
+        product {
+          title
+          pa: metafield(namespace: "custom", key: "allergens") { value }
+          pt: metafield(namespace: "custom", key: "trace_allergen") { value }
+        }
+        va: metafield(namespace: "custom", key: "allergens") { value }
+        vt: metafield(namespace: "custom", key: "trace_allergens") { value }
+      }
+    }
+  }
+`;

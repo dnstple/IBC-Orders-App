@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { OrderRow, ShippingLabelRow } from '@/types/db';
+import { PrintSlipButton } from '@/components/PrintSlipButton';
 import { validatePackage, buildDemoLabelPdf, type PackageErrors } from '@/lib/shipping-label';
 import { isDemoOrder } from '@/lib/demo';
 import {
@@ -427,6 +428,13 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
           In the print window, check the printer is the <strong>Munbyn</strong> (e.g. &ldquo;IBC Label Printer 2&rdquo;),
           click <strong>Print</strong>, stick the label flat on top of the box, then click <strong>Done</strong>.
         </p>
+        <div className="mt-3">
+          <PrintSlipButton
+            orderId={order.id}
+            className="block min-h-12 w-full rounded-xl border-2 border-cocoa-600 px-5 py-2.5 text-base font-semibold text-cocoa-800 hover:bg-cocoa-50 disabled:opacity-60"
+          />
+          <p className="mt-1 text-xs text-stone-500">The slip goes <strong>inside</strong> the box, on top of the chocolates.</p>
+        </div>
         <button
           onClick={() => setSetupOpen(true)}
           className={`mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold ${

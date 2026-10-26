@@ -6,6 +6,7 @@ import type { OrderRow, FulfillmentGroupRow, LineItemRow, ShippingLabelRow } fro
 import { toast } from '@/components/Toaster';
 import { PackingFlow } from '@/components/PackingFlow';
 import { LabelFlow } from '@/components/LabelFlow';
+import { PrintSlipButton } from '@/components/PrintSlipButton';
 import { isDemoOrder } from '@/lib/demo';
 
 /**
@@ -86,6 +87,7 @@ export function ActionsPanel({ order, groups, lineItems, role, label }: {
         <div className="mt-3 rounded-lg bg-stone-50 px-4 py-3 text-sm text-stone-500 ring-1 ring-stone-100">
           {status === 'fulfilled' ? '✓ Completed — this order is fulfilled.' : `This order is ${status}.`} No further actions.
         </div>
+        {status === 'fulfilled' && <div className="mt-2"><PrintSlipButton orderId={order.id} className={secondary} /></div>}
         {status === 'fulfilled' && isShipping && label?.status === 'purchased' && (
           <>
             <button className={`${secondary} mt-2`} onClick={() => setModal('label')}>Print label again…</button>
@@ -191,6 +193,9 @@ export function ActionsPanel({ order, groups, lineItems, role, label }: {
           Mark fulfilled…
         </button>
       )}
+
+      {/* The "YOUR ORDER" slip that goes in the box — any time before it ships */}
+      <PrintSlipButton orderId={order.id} className={secondary} />
 
       {isPickup && !hasOpenPickupGroup && !['fulfilled', 'cancelled', 'refunded'].includes(status) && (
         <p className="pt-1 text-xs text-stone-400">

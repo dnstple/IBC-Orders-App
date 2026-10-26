@@ -65,3 +65,28 @@ export function printPdf(pdf: Blob): void {
     URL.revokeObjectURL(url);
   }, 5 * 60000);
 }
+
+/**
+ * Open the browser's print window on a whole HTML page (the packing slip).
+ * Waits for its fonts so the first print never falls back to Arial.
+ */
+export function printHtml(html: string): void {
+  const frame = document.createElement('iframe');
+  Object.assign(frame.style, { position: 'fixed', right: '0', bottom: '0', width: '1px', height: '1px', border: '0', opacity: '0' });
+  frame.onload = async () => {
+    const win = frame.contentWindow;
+    if (!win) return;
+    try {
+      await Promise.race([win.document.fonts.ready, new Promise((r) => setTimeout(r, 3000))]);
+      win.focus();
+      win.print();
+    } catch {
+      const tab = window.open('', '_blank');
+      tab?.document.write(html);
+      tab?.document.close();
+    }
+  };
+  frame.srcdoc = html;
+  document.body.appendChild(frame);
+  setTimeout(() => frame.remove(), 5 * 60000);
+}
