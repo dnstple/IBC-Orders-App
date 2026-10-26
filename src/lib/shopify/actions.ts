@@ -5,7 +5,9 @@ import {
   TAGS_ADD_MUTATION,
   TAGS_REMOVE_MUTATION,
   METAFIELDS_SET_MUTATION,
+  SHIPPING_LABEL_PURCHASE_MUTATION,
 } from '@/lib/shopify/mutations';
+import { LABEL_PURCHASE_RESULT_QUERY } from '@/lib/shopify/queries';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 /**
@@ -143,4 +145,65 @@ export async function writeCourierMetafield(
     'metafieldsSet'
   );
   assertNoUserErrors(data.metafieldsSet, 'metafieldsSet');
+}
+
+/** A label purchase Shopify refused, with its error code when it gave one. */
+export class LabelPurchaseError extends Error {
+  constructor(public code: string | null, message: string) {
+    super(message);
+    this.name = 'LabelPurchaseError';
+  }
+}
+
+/** Start a Shopify Shipping label purchase. Returns the result GID to poll. */
+export async function purchaseShippingLabel(input: Record<string, unknown>): Promise<string> {
+  const data = await shopifyGraphql<{
+    shippingLabelPurchase: {
+      shippingLabelPurchaseResult: { id: string; status: string } | null;
+      userErrors: Array<{ field?: string[] | null; code?: string | null; message: string }>;
+    };
+  }>(SHIPPING_LABEL_PURCHASE_MUTATION, { input }, 'shippingLabelPurchase');
+
+  const { userErrors, shippingLabelPurchaseResult } = data.shippingLabelPurchase;
+  if (userErrors.length) {
+    throw new LabelPurchaseError(userErrors[0].code ?? null, userErrors.map((e) => e.message).join('; '));
+  }
+  if (!shippingLabelPurchaseResult) throw new Error('shippingLabelPurchase returned no result');
+  return shippingLabelPurchaseResult.id;
+}
+
+export interface LabelPurchaseResult {
+  status: 'PENDING_PURCHASE' | 'PURCHASED' | 'PURCHASE_FAILED';
+  error: { code: string | null; message: string } | null;
+  label: {
+    gid: string;
+    tracking: { number: string | null; company: string | null; url: string | null } | null;
+    pdfUrl: string | null;
+  } | null;
+}
+
+/** Read where a label purchase has got to. */
+export async function getLabelPurchaseResult(resultGid: string): Promise<LabelPurchaseResult> {
+  const data = await shopifyGraphql<{
+    node: {
+      status: LabelPurchaseResult['status'];
+      errors: Array<{ code: string | null; message: string }> | null;
+      shippingLabels: Array<{
+        id: string;
+        trackingInfo: { number: string | null; company: string | null; url: string | null } | null;
+        shippingDocuments: Array<{ documentType: string; format: string; url: string }>;
+      }> | null;
+    } | null;
+  }>(LABEL_PURCHASE_RESULT_QUERY, { id: resultGid }, 'shippingLabelPurchaseResult');
+
+  if (!data.node) throw new Error(`Label purchase not found: ${resultGid}`);
+  const label = data.node.shippingLabels?.[0];
+  const doc = label?.shippingDocuments.find((d) => d.documentType === 'LABEL' && d.format === 'PDF')
+    ?? label?.shippingDocuments.find((d) => d.documentType === 'LABEL');
+  const err = data.node.errors?.[0];
+  return {
+    status: data.node.status,
+    error: err ? { code: err.code, message: err.message } : null,
+    label: label ? { gid: label.id, tracking: label.trackingInfo, pdfUrl: doc?.url ?? null } : null,
+  };
 }

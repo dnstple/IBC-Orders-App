@@ -98,6 +98,26 @@ export const ORDER_FULL_QUERY = /* GraphQL */ `
   }
 `;
 
+/** Poll a shippingLabelPurchase result; once PURCHASED it carries the
+ *  label's tracking and printable documents. Document URLs are re-read
+ *  each time rather than stored, in case they expire. */
+export const LABEL_PURCHASE_RESULT_QUERY = /* GraphQL */ `
+  query LabelPurchaseResult($id: ID!) {
+    node(id: $id) {
+      ... on ShippingLabelPurchaseResult {
+        id
+        status
+        errors { code message }
+        shippingLabels {
+          id
+          trackingInfo { number company url }
+          shippingDocuments { documentType format url }
+        }
+      }
+    }
+  }
+`;
+
 export const ORDERS_RECENT_QUERY = /* GraphQL */ `
   query OrdersRecent($first: Int!, $query: String, $after: String) {
     orders(first: $first, query: $query, after: $after, sortKey: CREATED_AT, reverse: true) {

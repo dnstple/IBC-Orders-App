@@ -109,6 +109,25 @@ export interface FulfillmentGroupRow {
   supported_actions: string[];
 }
 
+export interface ShippingLabelRow {
+  id: string;
+  order_id: string;
+  status: 'pending' | 'purchased' | 'failed';
+  purchase_result_gid: string | null;
+  shipping_label_gid: string | null;
+  package: { lengthCm: number; widthCm: number; heightCm: number; weightGrams: number };
+  carrier_code: string | null;
+  service_code: string | null;
+  tracking_number: string | null;
+  tracking_company: string | null;
+  tracking_url: string | null;
+  error: string | null;
+  purchased_by: string | null;
+  purchased_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OrderEventRow {
   id: string;
   order_id: string;
