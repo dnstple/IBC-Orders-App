@@ -31,8 +31,16 @@ interface BleDevice {
   };
 }
 interface BluetoothApi {
-  requestDevice(options: { acceptAllDevices: boolean; optionalServices: Array<number | string> }): Promise<BleDevice>;
+  requestDevice(options: {
+    acceptAllDevices?: boolean;
+    filters?: Array<{ namePrefix: string }>;
+    optionalServices: Array<number | string>;
+  }): Promise<BleDevice>;
 }
+
+/** What the P130B calls itself, e.g. "ITPP130B-5E01". Filtering on it keeps
+ *  scooters and headphones out of Chrome's device picker. */
+const NAME_PREFIXES = ['ITPP130', 'MUNBYN', 'P130', 'RW130'];
 
 const uuid16 = (n: number) => `0000${n.toString(16).padStart(4, '0')}-0000-1000-8000-00805f9b34fb`;
 
@@ -60,12 +68,19 @@ export interface MunbynConnection {
 }
 
 /** Shows Chrome's device picker, connects, and finds where to send data. */
-export async function connectMunbyn(log: (line: string) => void): Promise<MunbynConnection> {
+export async function connectMunbyn(
+  log: (line: string) => void,
+  opts: { showAllDevices?: boolean } = {}
+): Promise<MunbynConnection> {
   if (!webBluetoothAvailable()) {
     throw new Error('This browser can\'t use Bluetooth. Open this page in Google Chrome on a computer.');
   }
   const bluetooth = (navigator as unknown as { bluetooth: BluetoothApi }).bluetooth;
-  const device = await bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: CANDIDATE_SERVICES });
+  const device = await bluetooth.requestDevice(
+    opts.showAllDevices
+      ? { acceptAllDevices: true, optionalServices: CANDIDATE_SERVICES }
+      : { filters: NAME_PREFIXES.map((namePrefix) => ({ namePrefix })), optionalServices: CANDIDATE_SERVICES }
+  );
   log(`Picked device: ${device.name ?? '(no name)'}`);
   if (!device.gatt) throw new Error('This device has no Bluetooth LE connection.');
 

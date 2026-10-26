@@ -29,10 +29,10 @@ export function PrintTest() {
 
   const add = (line: string) => setLog((l) => [...l, `${new Date().toLocaleTimeString()}  ${line}`]);
 
-  async function connect() {
+  async function connect(showAllDevices = false) {
     setBusy(true);
     try {
-      setConn(await connectMunbyn(add));
+      setConn(await connectMunbyn(add, { showAllDevices }));
       add('✓ Ready to print.');
     } catch (e) {
       add(`✗ ${e instanceof Error ? e.message : String(e)}`);
@@ -82,14 +82,20 @@ export function PrintTest() {
       <ol className="space-y-2 rounded-xl border border-cocoa-100 bg-white p-5 text-base text-stone-700">
         <li><strong>1.</strong> On the iPad, <strong>close the Munbyn app</strong> and turn <strong>Bluetooth off</strong> — the printer only talks to one device at a time.</li>
         <li><strong>2.</strong> Switch the Munbyn on, with labels loaded.</li>
-        <li><strong>3.</strong> Tap <strong>Connect to printer</strong>. In the box that pops up, pick the Munbyn (its name may start with &ldquo;130&rdquo; or &ldquo;MUNBYN&rdquo;) and tap <strong>Pair</strong>.</li>
+        <li><strong>3.</strong> Tap <strong>Connect to printer</strong>. In the box that pops up, pick the printer (called <strong>ITPP130B-</strong> and four characters) and tap <strong>Pair</strong>.</li>
         <li><strong>4.</strong> Tap <strong>Test 1</strong>. If a label comes out, tap <strong>Test 2</strong>.</li>
       </ol>
 
-      <button onClick={connect} disabled={busy || supported === false || Boolean(conn)}
+      <button onClick={() => connect()} disabled={busy || supported === false || Boolean(conn)}
         className={`${btn} bg-cocoa-700 text-white hover:bg-cocoa-600`}>
         {conn ? `✓ Connected to ${conn.deviceName}` : busy ? 'Connecting…' : 'Connect to printer'}
       </button>
+      {!conn && (
+        <button onClick={() => connect(true)} disabled={busy || supported === false}
+          className="w-full text-center text-sm text-stone-500 underline">
+          Printer not in the list? Show every nearby device instead
+        </button>
+      )}
       <button onClick={() => print('text')} disabled={busy || !conn}
         className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}>
         Test 1 — print text
