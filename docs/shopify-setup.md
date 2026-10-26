@@ -71,8 +71,13 @@ Until the future slot picker exists, the app reads pickup/delivery dates from **
 ## 4. Shipping labels (Royal Mail Tracked 24)
 
 Shipping orders get their label inside the app: after packing, staff type the
-box's outside size (cm) and weight (g), tap **Buy label**, then print it on the
-Munbyn from the iPad share sheet. The label is a normal **Shopify Shipping**
+box's outside size (cm) and weight (g), tap **Buy label**, then print it from a
+Windows or Mac computer with the Munbyn (P130B) plugged in by USB: **Print
+label** opens the browser's print window with the label in it. The first time
+on each computer the app shows a setup card (driver download from
+munbyn.biz/130BD + a test print). Labels can be bought on the iPad, but the
+Munbyn iOS app can't accept files from other apps, so printing happens on the
+computer ("Print label again" on the order). The label is a normal **Shopify Shipping**
 label — billed to the Shopify account, and buying it fulfils the order and
 emails the customer their tracking, exactly as buying it in the admin does.
 

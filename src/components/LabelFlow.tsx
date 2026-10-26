@@ -1,15 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { OrderRow, ShippingLabelRow } from '@/types/db';
-import { validatePackage, type PackageErrors } from '@/lib/shipping-label';
+import { validatePackage, buildDemoLabelPdf, type PackageErrors } from '@/lib/shipping-label';
 import { isDemoOrder } from '@/lib/demo';
+import {
+  detectPlatform,
+  printPdf,
+  printerMarkedReady,
+  setPrinterReady,
+  MUNBYN_DRIVER_URL,
+  type Platform,
+} from '@/lib/print-pdf';
 
 /**
  * Royal Mail Tracked 24 label, start to finish, without leaving the app:
  *   1. Measure  — staff type the box's size and weight for THIS parcel
- *   2. Buy      — the app buys the Shopify Shipping label
- *   3. Print    — the label goes to the iPad share sheet → Munbyn app
+ *   2. Buy      — the app buys the Shopify Shipping label (any device)
+ *   3. Print    — on a Windows or Mac computer, the browser's print window
+ *                 sends it to the USB Munbyn (the Munbyn iOS app can't take
+ *                 files from other apps, so the iPad hands printing over)
  * Written for someone doing it for the first time: every screen says
  * exactly what to do next. Buying is guarded server-side — one live label
  * per order — so re-opening this screen only ever re-prints.
@@ -326,14 +336,19 @@ function FailedScreen({ message }: { message: string | null }) {
   );
 }
 
-/* ── Step 3: print via the share sheet → Munbyn app ────────────────────── */
+/* ── Step 3: print from the computer to the USB Munbyn ─────────────────── */
 function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRow }) {
-  // Download the PDF up front: the share sheet has to open straight from
-  // the tap, and Safari won't allow it after waiting on a download.
-  const [file, setFile] = useState<File | null>(null);
+  const [platform, setPlatform] = useState<Platform | null>(null);
+  const [file, setFile] = useState<Blob | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [printTapped, setPrintTapped] = useState(false);
-  const objectUrl = useRef<string | null>(null);
+  const [printClicked, setPrintClicked] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  useEffect(() => {
+    const p = detectPlatform();
+    setPlatform(p);
+    if (p !== 'tablet' && !printerMarkedReady()) setSetupOpen(true);
+  }, []);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -343,52 +358,61 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error ?? `Couldn't load the label (${res.status})`);
       }
-      const blob = await res.blob();
-      setFile(new File([blob], `label-${order.order_number.replace(/[^\w-]/g, '')}.pdf`, { type: 'application/pdf' }));
+      setFile(await res.blob());
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Couldn\'t load the label');
     }
-  }, [order.id, order.order_number]);
+  }, [order.id]);
 
   useEffect(() => {
     load();
-    return () => {
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-    };
   }, [load]);
 
-  async function print() {
+  function print() {
     if (!file) return;
-    setPrintTapped(true);
-    const shareData = { files: [file], title: `Label ${order.order_number}` };
-    if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
-      try {
-        await navigator.share(shareData);
-      } catch {
-        /* closed the share menu — they can tap again */
-      }
-      return;
-    }
-    // No share sheet (e.g. a desktop browser): open the PDF to print it.
-    if (!objectUrl.current) objectUrl.current = URL.createObjectURL(file);
-    window.open(objectUrl.current, '_blank');
+    setPrintClicked(true);
+    printPdf(file);
+  }
+
+  const bought = (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+      <p className="text-base font-semibold">✓ Label bought</p>
+      {label.tracking_number && (
+        <p className="mt-0.5 text-sm">Tracking number: <span className="font-mono">{label.tracking_number}</span></p>
+      )}
+    </div>
+  );
+
+  if (platform === 'tablet') {
+    return (
+      <div className="space-y-4">
+        {bought}
+        <div className="rounded-2xl border border-cocoa-100 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-cocoa-900">Print it on the computer</h2>
+          <ol className="mt-4 space-y-4 text-base text-stone-700">
+            <Instruction n={1}>Tap <strong>Done</strong> below. The label is saved — you won&apos;t be charged again.</Instruction>
+            <Instruction n={2}>On the <strong>computer next to the Munbyn printer</strong>, open the orders app and this order ({order.order_number}).</Instruction>
+            <Instruction n={3}>Click <strong>Print label again</strong> and follow the steps there.</Instruction>
+          </ol>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
-        <p className="text-base font-semibold">✓ Label bought</p>
-        {label.tracking_number && (
-          <p className="mt-0.5 text-sm">Tracking number: <span className="font-mono">{label.tracking_number}</span></p>
-        )}
-      </div>
+      {bought}
+
+      {setupOpen && platform && (
+        <PrinterSetup platform={platform} onReady={() => setSetupOpen(false)} />
+      )}
 
       <div className="rounded-2xl border border-cocoa-100 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-semibold text-cocoa-900">Print the label</h2>
         <ol className="mt-4 space-y-4 text-base text-stone-700">
-          <Instruction n={1}>Check the <strong>Munbyn printer</strong> is switched on and has labels in it.</Instruction>
+          <Instruction n={1}>Check the <strong>Munbyn</strong> is switched on, plugged into this computer with its <strong>USB cable</strong>, and has labels in it.</Instruction>
           <Instruction n={2}>
-            Tap <strong>Print label</strong> below.
+            Click <strong>Print label</strong>.
             <button
               onClick={print}
               disabled={!file}
@@ -403,23 +427,93 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
               </span>
             )}
           </Instruction>
-          <Instruction n={3}>A menu slides up. Tap the <strong>Munbyn</strong> app icon — it&apos;s the <strong>first app</strong> in the row.</Instruction>
-          <Instruction n={4}>The Munbyn app opens with the label. Tap <strong>Print</strong>.</Instruction>
+          <Instruction n={3}>
+            A print window opens. Next to <strong>Printer</strong> (or <strong>Destination</strong>), check it says the
+            <strong> Munbyn</strong> — for example &ldquo;IBC Label Printer&rdquo; or &ldquo;Munbyn ITPP130&rdquo;. If it
+            doesn&apos;t, click it and choose the Munbyn. The computer remembers it next time.
+          </Instruction>
+          <Instruction n={4}>Click <strong>Print</strong>.</Instruction>
           <Instruction n={5}>Peel the label off and stick it <strong>flat on the top</strong> of the box.</Instruction>
-          <Instruction n={6}>Come back to this app and tap <strong>Done</strong>.</Instruction>
+          <Instruction n={6}>Click <strong>Done</strong> below.</Instruction>
         </ol>
       </div>
 
-      {printTapped && (
+      {printClicked && (
         <details className="rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-700">
-          <summary className="cursor-pointer font-semibold text-cocoa-900">It didn&apos;t print — what do I do?</summary>
+          <summary className="cursor-pointer font-semibold text-cocoa-900">It didn&apos;t print properly — what do I do?</summary>
           <ul className="mt-2 list-disc space-y-1.5 pl-5">
-            <li>Can&apos;t see Munbyn in the menu? Scroll the row of apps to the right, tap <strong>More</strong>, and pick Munbyn.</li>
-            <li>Turn the printer off and on again, wait 10 seconds, then tap <strong>Print label</strong> again.</li>
-            <li>Tapping <strong>Print label</strong> again is safe — it prints the same label and <strong>never buys a new one</strong>.</li>
-            <li>Still stuck? Tap <strong>Done</strong> and ask a manager — you can print it later from this order.</li>
+            <li><strong>Label tiny, cut off or on two labels?</strong> In the print window open <strong>More settings</strong>, set <strong>Paper size</strong> to <strong>4 x 6</strong> (or 100 x 150 mm), <strong>Margins</strong> to <strong>None</strong>, then Print.</li>
+            <li><strong>No Munbyn in the printer list?</strong> <button onClick={() => setSetupOpen(true)} className="font-semibold underline">Set up this computer</button>.</li>
+            <li><strong>No print window appeared?</strong> Use Google Chrome, then click Print label again.</li>
+            <li>Clicking <strong>Print label</strong> again is safe — it prints the same label and <strong>never buys a new one</strong>.</li>
+            <li>Still stuck? Click <strong>Done</strong> and ask a manager — the label can be printed later from this order.</li>
           </ul>
         </details>
+      )}
+    </div>
+  );
+}
+
+/* ── First time on this computer: driver + test print ──────────────────── */
+function PrinterSetup({ platform, onReady }: { platform: Platform; onReady: () => void }) {
+  const [tested, setTested] = useState(false);
+  const os = platform === 'mac' ? 'Mac' : 'Windows';
+
+  function testPrint() {
+    setTested(true);
+    printPdf(new Blob([buildDemoLabelPdf([
+      'TEST LABEL - NOT POSTAGE',
+      'Italian Bear Chocolate',
+      'If this fills the label and',
+      'reads the right way up,',
+      'this computer is ready.',
+    ]).buffer as ArrayBuffer], { type: 'application/pdf' }));
+  }
+
+  return (
+    <div className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-6 text-sky-950">
+      <h2 className="text-lg font-semibold">First time printing on this computer?</h2>
+      <p className="mt-1 text-sm">Do this once. If labels already print from this computer, skip to step 3.</p>
+      <ol className="mt-4 space-y-4 text-base">
+        <Instruction n={1}>Plug the Munbyn into this computer with its <strong>USB cable</strong> and switch it on.</Instruction>
+        <Instruction n={2}>
+          Install the Munbyn printer driver for {os}:
+          <a
+            href={MUNBYN_DRIVER_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block min-h-12 w-full rounded-xl border border-sky-400 bg-white px-5 py-3 text-center font-semibold text-sky-900 hover:bg-sky-100"
+          >
+            Download the Munbyn driver ↗
+          </a>
+          <span className="mt-2 block text-sm">
+            On Munbyn&apos;s page pick the <strong>{os}</strong> driver for the <strong>130B</strong>, open the downloaded
+            file and follow its steps.{platform === 'mac'
+              ? ' Then open System Settings → Printers & Scanners → Add Printer and choose the Munbyn.'
+              : ' Leave the printer plugged in while it installs.'}
+          </span>
+        </Instruction>
+        <Instruction n={3}>
+          Print a test label:
+          <button
+            onClick={testPrint}
+            className="mt-2 block min-h-12 w-full rounded-xl bg-sky-700 px-5 py-3 font-semibold text-white hover:bg-sky-800"
+          >
+            🖨  Print a test label
+          </button>
+          <span className="mt-2 block text-sm">
+            In the print window choose the <strong>Munbyn</strong> as the printer, then Print. If it&apos;s tiny or cut off,
+            open <strong>More settings</strong> and set Paper size <strong>4 x 6</strong> and Margins <strong>None</strong>.
+          </span>
+        </Instruction>
+      </ol>
+      {tested && (
+        <button
+          onClick={() => { setPrinterReady(true); onReady(); }}
+          className="mt-5 block min-h-12 w-full rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white hover:bg-emerald-700"
+        >
+          ✓ The test label printed properly
+        </button>
       )}
     </div>
   );
