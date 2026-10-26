@@ -35,6 +35,7 @@ export function PrintSlipButton({ orderId, className }: { orderId: string; class
       <button className={className} disabled={busy} onClick={print}>
         {busy ? 'Getting the slip…' : '🧾  Print order slip'}
       </button>
+      <p className="mt-1 text-xs text-stone-500">The slip goes <strong>inside</strong> the box, on top of the items.</p>
       {error && (
         <p role="alert" className="mt-1 text-sm text-red-700">
           {error} <button onClick={print} className="font-semibold underline">Try again</button>

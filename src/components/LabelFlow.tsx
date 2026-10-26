@@ -16,16 +16,18 @@ import {
 
 /**
  * Royal Mail Tracked 24 label, start to finish, without leaving the app:
- *   1. Measure  — staff type the box's size and weight for THIS parcel
- *   2. Buy      — the app buys the Shopify Shipping label (any device)
- *   3. Print    — on a Windows or Mac computer, the browser's print window
+ *   1. Slip     — print the "YOUR ORDER" slip; it goes INSIDE the box
+ *                 before the box is closed, weighed and measured
+ *   2. Measure  — staff type the box's size and weight for THIS parcel
+ *   3. Buy      — the app buys the Shopify Shipping label (any device)
+ *   4. Print    — on a Windows or Mac computer, the browser's print window
  *                 sends it to the USB Munbyn (the Munbyn iOS app can't take
  *                 files from other apps, so the iPad hands printing over)
  * Written for someone doing it for the first time: every screen says
  * exactly what to do next. Buying is guarded server-side — one live label
  * per order — so re-opening this screen only ever re-prints.
  */
-type Step = 'measure' | 'confirm' | 'buying' | 'failed' | 'print';
+type Step = 'slip' | 'measure' | 'confirm' | 'buying' | 'failed' | 'print';
 
 export function LabelFlow({ order, initialLabel, onClose, onDone }: {
   order: OrderRow;
@@ -37,7 +39,8 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
   const [step, setStep] = useState<Step>(() =>
     initialLabel?.status === 'purchased' ? 'print'
       : initialLabel?.status === 'pending' ? 'buying'
-      : 'measure'
+      : initialLabel ? 'measure'
+      : 'slip'
   );
   const [form, setForm] = useState({
     lengthCm: initialLabel ? String(initialLabel.package.lengthCm) : '',
@@ -128,7 +131,7 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
     }
   }
 
-  const stepNumber = step === 'measure' ? 1 : step === 'print' ? 3 : 2;
+  const stepNumber = step === 'slip' ? 1 : step === 'measure' ? 2 : step === 'print' ? 4 : 3;
   const practice = isDemoOrder(order);
 
   return (
@@ -137,7 +140,7 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
       <div className="flex items-center justify-between border-b border-cocoa-100 bg-white px-4 py-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-cocoa-900">Shipping label · {order.order_number}</div>
-          <div className="text-xs text-stone-500">Step {stepNumber} of 3 · Royal Mail Tracked 24</div>
+          <div className="text-xs text-stone-500">Step {stepNumber} of 4 · Royal Mail Tracked 24</div>
         </div>
         {step !== 'buying' && (
           <button
@@ -151,7 +154,7 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
       </div>
 
       <div className="h-1.5 w-full bg-cocoa-100" aria-hidden>
-        <div className="h-1.5 bg-cocoa-600 transition-all" style={{ width: `${Math.round((stepNumber / 3) * 100)}%` }} />
+        <div className="h-1.5 bg-cocoa-600 transition-all" style={{ width: `${Math.round((stepNumber / 4) * 100)}%` }} />
       </div>
       {practice && (
         <div role="status" className="bg-sky-600 px-4 py-2 text-center text-sm font-semibold text-white">
@@ -162,6 +165,7 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-xl">
+          {step === 'slip' && <SlipScreen order={order} />}
           {step === 'measure' && <MeasureScreen form={form} setForm={setForm} errors={errors} />}
           {step === 'confirm' && <ConfirmScreen order={order} form={form} practice={practice} />}
           {step === 'buying' && <BuyingScreen slow={slow} />}
@@ -173,6 +177,9 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
       {/* Footer */}
       <div className="border-t border-cocoa-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="mx-auto flex max-w-xl gap-2">
+          {step === 'slip' && (
+            <button onClick={() => setStep('measure')} className={primaryBtn}>Next — slip is in the box →</button>
+          )}
           {step === 'measure' && (
             <button onClick={next} className={primaryBtn}>Next — check details →</button>
           )}
@@ -205,7 +212,42 @@ const backBtn = 'min-h-12 rounded-xl border border-stone-200 px-5 py-3 text-sm f
 
 type Form = { lengthCm: string; widthCm: string; heightCm: string; weightGrams: string };
 
-/* ── Step 1: measure and weigh ─────────────────────────────────────────── */
+/* ── Step 1: the order slip goes in the box before it is closed ───────── */
+function SlipScreen({ order }: { order: OrderRow }) {
+  const [platform, setPlatform] = useState<Platform | null>(null);
+  useEffect(() => setPlatform(detectPlatform()), []);
+
+  return (
+    <div className="rounded-2xl border-2 border-cocoa-300 bg-white p-5 shadow-sm">
+      <h2 className="text-xl font-semibold text-cocoa-900">Print the order slip</h2>
+      <p className="mt-1 text-base text-stone-700">
+        The slip lists what&apos;s in the box and the allergens. It goes <strong>inside the box</strong>,
+        on top of the items — not on the outside.
+      </p>
+      {platform === 'tablet' ? (
+        <p className="mt-4 rounded-xl bg-sky-50 p-4 text-base text-sky-900 ring-1 ring-sky-200">
+          Printing only works from the <strong>computer next to the Munbyn</strong>. Open this order
+          ({order.order_number}) there and click <strong>Print order slip</strong>, put the slip in the box,
+          then tap <strong>Next</strong> here.
+        </p>
+      ) : (
+        <div className="mt-4">
+          <PrintSlipButton
+            orderId={order.id}
+            className="block min-h-16 w-full rounded-xl bg-cocoa-700 px-5 py-3 text-xl font-semibold text-white hover:bg-cocoa-600 disabled:opacity-60"
+          />
+        </div>
+      )}
+      <ol className="mt-4 space-y-3 text-base text-stone-700">
+        <Instruction n={1}>In the print window, choose the <strong>Munbyn</strong> and click <strong>Print</strong>.</Instruction>
+        <Instruction n={2}>Put the slip <strong>inside the box</strong>, on top of the items.</Instruction>
+        <Instruction n={3}>Close and tape the box, then click <strong>Next</strong> to weigh and measure it.</Instruction>
+      </ol>
+    </div>
+  );
+}
+
+/* ── Step 2: measure and weigh ─────────────────────────────────────────── */
 function MeasureScreen({ form, setForm, errors }: {
   form: Form;
   setForm: (f: Form) => void;
@@ -272,7 +314,7 @@ function NumberField({ label, unit, value, error, onChange, integer }: {
   );
 }
 
-/* ── Step 2: check, then buy ───────────────────────────────────────────── */
+/* ── Step 3: check, then buy ───────────────────────────────────────────── */
 function ConfirmScreen({ order, form, practice }: { order: OrderRow; form: Form; practice: boolean }) {
   const a = order.delivery_address ?? {};
   return (
@@ -337,7 +379,7 @@ function FailedScreen({ message }: { message: string | null }) {
   );
 }
 
-/* ── Step 3: print from the computer to the USB Munbyn ─────────────────── */
+/* ── Step 4: print from the computer to the USB Munbyn ─────────────────── */
 function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRow }) {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [file, setFile] = useState<Blob | null>(null);
@@ -428,13 +470,6 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
           In the print window, check the printer is the <strong>Munbyn</strong> (e.g. &ldquo;IBC Label Printer 2&rdquo;),
           click <strong>Print</strong>, stick the label flat on top of the box, then click <strong>Done</strong>.
         </p>
-        <div className="mt-3">
-          <PrintSlipButton
-            orderId={order.id}
-            className="block min-h-12 w-full rounded-xl border-2 border-cocoa-600 px-5 py-2.5 text-base font-semibold text-cocoa-800 hover:bg-cocoa-50 disabled:opacity-60"
-          />
-          <p className="mt-1 text-xs text-stone-500">The slip goes <strong>inside</strong> the box, on top of the chocolates.</p>
-        </div>
         <button
           onClick={() => setSetupOpen(true)}
           className={`mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold ${

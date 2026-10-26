@@ -180,7 +180,7 @@ export function ActionsPanel({ order, groups, lineItems, role, label }: {
       )}
       {isShipping && ['packed', 'courier_booked'].includes(status) && !hasLabel && (
         <p className="text-xs text-stone-400">
-          Royal Mail Tracked 24. You&apos;ll enter the box size and weight, then print on the Munbyn.
+          Royal Mail Tracked 24. You&apos;ll print the order slip for inside the box, enter the box size and weight, then print the label on the Munbyn.
         </p>
       )}
       {isDelivery && !isShipping && ['preparing', 'packed'].includes(status) && (
