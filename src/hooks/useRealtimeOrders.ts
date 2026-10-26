@@ -8,14 +8,18 @@ import { supabaseBrowser } from '@/lib/supabase/client';
  * updates in real time — both for staff actions here and for Shopify-side
  * changes arriving via webhooks.
  */
-export function useRealtimeOrders(onChange: (payload: { eventType: string; new: Record<string, unknown> | null }) => void) {
+export function useRealtimeOrders(
+  onChange: (payload: { eventType: string; new: Record<string, unknown> | null }) => void,
+  /** Distinct per subscriber — two live subscriptions can't share a channel name. */
+  channelName = 'orders-live'
+) {
   const cbRef = useRef(onChange);
   cbRef.current = onChange;
 
   useEffect(() => {
     const supabase = supabaseBrowser();
     const channel = supabase
-      .channel('orders-live')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         cbRef.current({
           eventType: payload.eventType,
@@ -26,5 +30,5 @@ export function useRealtimeOrders(onChange: (payload: { eventType: string; new: 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [channelName]);
 }

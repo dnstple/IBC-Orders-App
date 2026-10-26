@@ -102,7 +102,7 @@ export function ActionsPanel({ order, groups, lineItems, role, label }: {
   }
 
   return (
-    <aside className="space-y-2 rounded-xl border border-cocoa-100 bg-white p-5 lg:sticky lg:top-4">
+    <aside className="space-y-2 rounded-xl border-2 border-cocoa-200 bg-white p-5">
       <h2 className="font-semibold">Actions</h2>
 
       {/* Step 1: Acknowledge */}

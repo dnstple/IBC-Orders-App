@@ -343,11 +343,12 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
   const [loadError, setLoadError] = useState<string | null>(null);
   const [printClicked, setPrintClicked] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [firstTime, setFirstTime] = useState(false);
 
   useEffect(() => {
     const p = detectPlatform();
     setPlatform(p);
-    if (p !== 'tablet' && !printerMarkedReady()) setSetupOpen(true);
+    setFirstTime(p !== 'tablet' && !printerMarkedReady());
   }, []);
 
   const load = useCallback(async () => {
@@ -401,42 +402,48 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
 
   return (
     <div className="space-y-4">
-      {bought}
+      {/* The one thing to do, first — no scrolling to find it */}
+      <div className="rounded-2xl border-2 border-cocoa-300 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-base font-semibold text-emerald-700">✓ Label bought</p>
+          {label.tracking_number && (
+            <p className="text-sm text-stone-500">Tracking <span className="font-mono">{label.tracking_number}</span></p>
+          )}
+        </div>
+        <button
+          onClick={print}
+          disabled={!file}
+          className="mt-3 block min-h-16 w-full rounded-xl bg-cocoa-700 px-5 py-3 text-xl font-semibold text-white hover:bg-cocoa-600 disabled:opacity-60"
+        >
+          {file ? '🖨  Print label' : loadError ? 'Label not loaded' : 'Getting the label…'}
+        </button>
+        {loadError && (
+          <p className="mt-2 text-sm text-red-700">
+            {loadError}{' '}
+            <button onClick={load} className="font-semibold underline">Try again</button>
+          </p>
+        )}
+        <p className="mt-3 text-sm text-stone-600">
+          In the print window, check the printer is the <strong>Munbyn</strong> (e.g. &ldquo;IBC Label Printer 2&rdquo;),
+          click <strong>Print</strong>, stick the label flat on top of the box, then click <strong>Done</strong>.
+        </p>
+        <button
+          onClick={() => setSetupOpen(true)}
+          className={`mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold ${
+            firstTime
+              ? 'bg-sky-100 text-sky-900 ring-2 ring-sky-300 hover:bg-sky-200'
+              : 'text-sky-800 underline hover:bg-sky-50'
+          }`}
+        >
+          First time printing on this computer? Set it up →
+        </button>
+      </div>
 
       {setupOpen && platform && (
-        <PrinterSetup platform={platform} onReady={() => setSetupOpen(false)} />
+        <SetupPopout onClose={() => setSetupOpen(false)}>
+          <PrinterSetup platform={platform} onReady={() => { setSetupOpen(false); setFirstTime(false); }} />
+        </SetupPopout>
       )}
-
-      <div className="rounded-2xl border border-cocoa-100 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-cocoa-900">Print the label</h2>
-        <ol className="mt-4 space-y-4 text-base text-stone-700">
-          <Instruction n={1}>Check the <strong>Munbyn</strong> is switched on, plugged into this computer with its <strong>USB cable</strong>, and has labels in it.</Instruction>
-          <Instruction n={2}>
-            Click <strong>Print label</strong>.
-            <button
-              onClick={print}
-              disabled={!file}
-              className="mt-3 block min-h-14 w-full rounded-xl bg-cocoa-700 px-5 py-3 text-lg font-semibold text-white hover:bg-cocoa-600 disabled:opacity-60"
-            >
-              {file ? '🖨  Print label' : loadError ? 'Label not loaded' : 'Getting the label…'}
-            </button>
-            {loadError && (
-              <span className="mt-2 block text-sm text-red-700">
-                {loadError}{' '}
-                <button onClick={load} className="font-semibold underline">Try again</button>
-              </span>
-            )}
-          </Instruction>
-          <Instruction n={3}>
-            A print window opens. Next to <strong>Printer</strong> (or <strong>Destination</strong>), check it says the
-            <strong> Munbyn</strong> — for example &ldquo;IBC Label Printer&rdquo; or &ldquo;Munbyn ITPP130&rdquo;. If it
-            doesn&apos;t, click it and choose the Munbyn. The computer remembers it next time.
-          </Instruction>
-          <Instruction n={4}>Click <strong>Print</strong>.</Instruction>
-          <Instruction n={5}>Peel the label off and stick it <strong>flat on the top</strong> of the box.</Instruction>
-          <Instruction n={6}>Click <strong>Done</strong> below.</Instruction>
-        </ol>
-      </div>
 
       {printClicked && (
         <details className="rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-700">
@@ -450,6 +457,33 @@ function PrintScreen({ order, label }: { order: OrderRow; label: ShippingLabelRo
           </ul>
         </details>
       )}
+    </div>
+  );
+}
+
+/** Popout over the print screen, closable, starting at the top. */
+function SetupPopout({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-3 sm:p-6" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Set up printing on this computer"
+        className="relative w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} aria-label="Close setup"
+          className="absolute right-3 top-3 z-10 min-h-10 rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm text-sky-900 hover:bg-sky-50">
+          ✕ Close
+        </button>
+        {children}
+      </div>
     </div>
   );
 }
@@ -472,7 +506,7 @@ function PrinterSetup({ platform, onReady }: { platform: Platform; onReady: () =
 
   return (
     <div className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-6 text-sky-950">
-      <h2 className="text-lg font-semibold">First time printing on this computer?</h2>
+      <h2 className="pr-24 text-lg font-semibold">First time printing on this computer?</h2>
       <p className="mt-1 text-sm">Do this once. If labels already print from this computer, skip to step 3.</p>
       <ol className="mt-4 space-y-4 text-base">
         <Instruction n={1}>Plug the Munbyn into this computer with its <strong>USB cable</strong> and switch it on.</Instruction>

@@ -254,6 +254,12 @@ export function OrderCard({ order, itemCount, showDate = true, onActioned }: Pro
           Cancelled — manage refunds in Shopify
         </div>
       )}
+
+      {/* Make it obvious the whole tile opens the order */}
+      <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-2.5 text-sm font-semibold text-cocoa-700">
+        <span>Open order to {unread ? 'see items' : order.internal_status === 'acknowledged' ? 'prepare' : 'see details'}</span>
+        <span aria-hidden className="text-lg leading-none">→</span>
+      </div>
     </div>
   );
 }

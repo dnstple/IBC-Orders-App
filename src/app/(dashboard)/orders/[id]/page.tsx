@@ -11,6 +11,7 @@ import { orderChips } from '@/lib/orders-view';
 import { formatLondonFull, formatLondonDate, formatLondonTime } from '@/lib/dates';
 import { ActionsPanel } from '@/components/ActionsPanel';
 import { BackButton } from '@/components/BackButton';
+import { VariantTag } from '@/components/VariantTag';
 import { cleanLineItemProperties, asSelectionList } from '@/lib/line-item-props';
 
 export default async function OrderDetailPage(props: { params: Promise<{ id: string }> }) {
@@ -42,9 +43,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
   const isPickup = op.orderType === 'pickup';
 
   return (
-    <div>
+    <div className="mx-auto w-full max-w-3xl">
       <BackButton />
-      <div className="grid w-full max-w-full gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+      {/* One column: what the order is and what to do with it come first */}
       <div className="min-w-0 space-y-4">
         {/* Header */}
         <section className="rounded-xl border border-cocoa-100 bg-white p-5">
@@ -58,10 +59,18 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
               >
                 {isPickup ? 'Pickup' : 'Delivery'}
               </span>
+              <span className={`rounded-full px-3 py-1 text-sm font-medium ring-1 ${statusBadgeClass(op.nativeOrderStatus)}`}>
+                {op.nativeOrderStatus}
+              </span>
             </div>
-            <span className={`rounded-full px-3 py-1 text-sm font-medium ring-1 ${statusBadgeClass(op.nativeOrderStatus)}`}>
-              {op.nativeOrderStatus}
-            </span>
+            <a
+              href={op.shopifyAdminUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="min-h-10 rounded-lg border-2 border-cocoa-600 px-4 py-2 text-sm font-semibold text-cocoa-700 hover:bg-cocoa-50"
+            >
+              Open in Shopify ↗
+            </a>
           </div>
           <p className="mt-1 text-sm text-stone-500">
             Payment: {op.financialStatus} · Fulfilment: {op.fulfilmentStatus}
@@ -71,6 +80,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
           )}
           <div className="mt-3"><Chips chips={orderChips(o)} /></div>
         </section>
+
+        {/* Actions — right under the header */}
+        <ActionsPanel order={o} groups={ffGroups} lineItems={lineItems} role={role} label={(labelRow as ShippingLabelRow | null) ?? null} />
 
         {/* Collection — prominent for pickup orders */}
         {isPickup && (
@@ -223,8 +235,8 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
               return (
                 <li key={li.id} className="flex gap-3 py-3">
                   {li.image_url
-                    ? <Image src={li.image_url} alt="" width={56} height={56} className="h-14 w-14 rounded-lg border border-stone-100 object-cover" />
-                    : <div className="h-14 w-14 rounded-lg bg-cocoa-50" />}
+                    ? <Image src={li.image_url} alt="" width={48} height={48} className="h-12 w-12 shrink-0 rounded-lg border border-stone-100 object-cover opacity-90" />
+                    : <div className="h-12 w-12 shrink-0 rounded-lg bg-cocoa-50" />}
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-start gap-2">
                       <span className="mt-0.5 shrink-0 rounded-md bg-cocoa-700 px-2 py-0.5 text-sm font-bold text-white">
@@ -232,9 +244,9 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
                       </span>
                       <span className="min-w-0 break-words text-base font-semibold text-cocoa-900">{li.title}</span>
                     </div>
-                    {li.variant_title && li.variant_title !== 'Default Title' && (
-                      <div className="mt-0.5 text-sm text-stone-500">{li.variant_title}</div>
-                    )}
+                    {/* The variant is what gets packed — product photos can be
+                        of a different variant, so the words must win. */}
+                    <VariantTag variant={li.variant_title} />
                     <LineItemProperties properties={li.properties} />
                     {partial && (
                       <div className="mt-1 text-xs font-semibold text-violet-700">
@@ -339,26 +351,11 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
             {timeline.length === 0 && <li className="text-stone-400">No activity yet.</li>}
           </ul>
         </section>
-      </div>
 
-      {/* Actions + Shopify handoff */}
-      <div className="min-w-0 space-y-4">
-        <ActionsPanel order={o} groups={ffGroups} lineItems={lineItems} role={role} label={(labelRow as ShippingLabelRow | null) ?? null} />
-        <aside className="rounded-xl border border-cocoa-100 bg-white p-5">
-          <a
-            href={op.shopifyAdminUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="block min-h-12 w-full rounded-lg border-2 border-cocoa-600 px-4 py-3 text-center text-sm font-semibold text-cocoa-700 hover:bg-cocoa-50"
-          >
-            Open order in Shopify ↗
-          </a>
-          <p className="mt-3 text-xs leading-relaxed text-stone-500">
-            <strong className="text-stone-700">To cancel or refund this order, open it in Shopify.</strong>{' '}
-            Cancellations and refunds must be managed in Shopify so payment, stock and fulfilment records remain accurate.
-          </p>
-        </aside>
-      </div>
+        <p className="px-1 pb-4 text-xs leading-relaxed text-stone-500">
+          <strong className="text-stone-700">To cancel or refund this order, use Open in Shopify at the top.</strong>{' '}
+          Cancellations and refunds must be managed in Shopify so payment, stock and fulfilment records remain accurate.
+        </p>
       </div>
     </div>
   );

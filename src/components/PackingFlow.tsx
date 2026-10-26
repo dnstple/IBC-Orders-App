@@ -5,6 +5,7 @@ import Image from 'next/image';
 import type { OrderRow, LineItemRow } from '@/types/db';
 import { cleanLineItemProperties, asSelectionList } from '@/lib/line-item-props';
 import { isDeliveryChargeLine } from '@/lib/courier';
+import { VariantTag } from '@/components/VariantTag';
 
 /**
  * Guided packing flow for DELIVERY orders — one product per screen, staff
@@ -115,20 +116,21 @@ function ItemScreen({ item }: { item: LineItemRow }) {
       <div className="rounded-2xl border border-cocoa-100 bg-white p-6 text-center shadow-sm">
         {item.image_url ? (
           <Image
-            src={item.image_url} alt={item.title} width={160} height={160}
-            className="mx-auto h-40 w-40 rounded-xl border border-stone-100 object-cover"
+            src={item.image_url} alt={item.title} width={112} height={112}
+            className="mx-auto h-28 w-28 rounded-xl border border-stone-100 object-cover"
           />
         ) : (
-          <div className="mx-auto h-40 w-40 rounded-xl bg-cocoa-50" />
+          <div className="mx-auto h-28 w-28 rounded-xl bg-cocoa-50" />
+        )}
+        {item.variant_title && item.variant_title !== 'Default Title' && (
+          <p className="mt-1 text-xs text-stone-400">Photo may show a different option — pack the <strong>variant</strong> below.</p>
         )}
 
         <div className="mt-5 inline-flex items-center rounded-xl bg-cocoa-700 px-5 py-2 text-4xl font-bold text-white">
           ×{item.quantity}
         </div>
         <h2 className="mt-3 break-words text-2xl font-semibold text-cocoa-900">{item.title}</h2>
-        {item.variant_title && item.variant_title !== 'Default Title' && (
-          <p className="mt-1 text-lg text-stone-600">{item.variant_title}</p>
-        )}
+        <VariantTag variant={item.variant_title} size="lg" />
 
         {props.length > 0 && (
           <div className="mt-4 space-y-2 rounded-xl bg-amber-50 p-4 text-left text-sm text-amber-900 ring-1 ring-amber-100">
@@ -172,9 +174,7 @@ function ReviewScreen({ order, items, labelInApp }: { order: OrderRow; items: Li
               <span className="shrink-0 rounded-md bg-cocoa-700 px-2 py-0.5 text-sm font-bold text-white">×{li.quantity}</span>
               <span className="min-w-0 flex-1 break-words text-sm font-medium">
                 {li.title}
-                {li.variant_title && li.variant_title !== 'Default Title' && (
-                  <span className="font-normal text-stone-500"> — {li.variant_title}</span>
-                )}
+                <span className="block"><VariantTag variant={li.variant_title} /></span>
               </span>
             </li>
           ))}
