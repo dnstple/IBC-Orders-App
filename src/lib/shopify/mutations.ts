@@ -30,6 +30,17 @@ export const FULFILLMENT_CREATE_MUTATION = /* GraphQL */ `
   }
 `;
 
+/** Buys one Shopify Shipping label for one fulfillment order (API 2026-07+).
+ *  Asynchronous: returns a ShippingLabelPurchaseResult to poll. */
+export const SHIPPING_LABEL_PURCHASE_MUTATION = /* GraphQL */ `
+  mutation ShippingLabelPurchase($input: ShippingLabelPurchaseInput!) {
+    shippingLabelPurchase(shippingLabelPurchase: $input) {
+      shippingLabelPurchaseResult { id status }
+      userErrors { field code message }
+    }
+  }
+`;
+
 export const TAGS_ADD_MUTATION = /* GraphQL */ `
   mutation TagsAdd($id: ID!, $tags: [String!]!) {
     tagsAdd(id: $id, tags: $tags) {

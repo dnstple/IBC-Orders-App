@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import { supabaseServer } from '@/lib/supabase/server';
-import type { OrderRow, LineItemRow, FulfillmentGroupRow, OrderEventRow } from '@/types/db';
+import type { OrderRow, LineItemRow, FulfillmentGroupRow, OrderEventRow, ShippingLabelRow } from '@/types/db';
 import { toOperationalOrder, statusBadgeClass, deliveryInfo } from '@/lib/operational';
 import { isSameDayCourier, courierInfo, isDeliveryChargeLine } from '@/lib/courier';
 import { CopyTrackingButton } from '@/components/CopyTrackingButton';
@@ -20,11 +20,12 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
   const { data: profile } = await supabase.from('staff_profiles').select('role').eq('id', user!.id).single();
   const role = (profile?.role ?? 'staff') as 'staff' | 'manager' | 'admin';
 
-  const [{ data: order }, { data: items }, { data: groups }, { data: events }] = await Promise.all([
+  const [{ data: order }, { data: items }, { data: groups }, { data: events }, { data: labelRow }] = await Promise.all([
     supabase.from('orders').select('*').eq('id', id).maybeSingle(),
     supabase.from('order_line_items').select('*').eq('order_id', id).order('title'),
     supabase.from('fulfillment_groups').select('*').eq('order_id', id),
     supabase.from('order_events').select('*').eq('order_id', id).order('created_at', { ascending: false }).limit(50),
+    supabase.from('shipping_labels').select('*').eq('order_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
   if (!order) notFound();
 
@@ -342,7 +343,7 @@ export default async function OrderDetailPage(props: { params: Promise<{ id: str
 
       {/* Actions + Shopify handoff */}
       <div className="min-w-0 space-y-4">
-        <ActionsPanel order={o} groups={ffGroups} lineItems={lineItems} role={role} />
+        <ActionsPanel order={o} groups={ffGroups} lineItems={lineItems} role={role} label={(labelRow as ShippingLabelRow | null) ?? null} />
         <aside className="rounded-xl border border-cocoa-100 bg-white p-5">
           <a
             href={op.shopifyAdminUrl}

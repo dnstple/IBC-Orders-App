@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { OrderRow, FulfillmentGroupRow, LineItemRow } from '@/types/db';
+import type { OrderRow, FulfillmentGroupRow, LineItemRow, ShippingLabelRow } from '@/types/db';
 import { toast } from '@/components/Toaster';
 import { PackingFlow } from '@/components/PackingFlow';
+import { LabelFlow } from '@/components/LabelFlow';
 
 /**
  * Order workflow (server-enforced; buttons are convenience):
@@ -14,22 +15,28 @@ import { PackingFlow } from '@/components/PackingFlow';
  *   Fulfilled      → completed / disabled
  * Delivery orders: Acknowledge → Preparing → Packed → Courier booked →
  * Mark fulfilled. No fake "ready" state is invented for delivery.
+ * Shipping orders: Preparing → Packed → Royal Mail label bought & printed
+ * in-app (LabelFlow); buying a Shopify Shipping label fulfils the order.
  * Every action disables while running, blocks double-clicks, reports
  * failures, and re-syncs state from Shopify rather than assuming success.
  */
-export function ActionsPanel({ order, groups, lineItems, role }: {
+export function ActionsPanel({ order, groups, lineItems, role, label }: {
   order: OrderRow;
   groups: FulfillmentGroupRow[];
   lineItems: LineItemRow[];
   role: 'staff' | 'manager' | 'admin';
+  label: ShippingLabelRow | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<'fulfill' | 'courier' | 'packing' | null>(null);
+  const [modal, setModal] = useState<'fulfill' | 'courier' | 'packing' | 'label' | null>(null);
 
   const isPickup = order.pickup_requested || order.fulfillment_method === 'pickup';
   const isDelivery = !isPickup && ['local_delivery', 'shipping'].includes(order.fulfillment_method);
+  // Posted orders get their Royal Mail label inside the app.
+  const isShipping = isDelivery && order.fulfillment_method === 'shipping';
+  const hasLabel = label?.status === 'purchased' || label?.status === 'pending';
   const status = order.internal_status;
   const terminal = ['fulfilled', 'cancelled', 'refunded'].includes(status);
   const hasOpenPickupGroup = useMemo(
@@ -78,6 +85,17 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
         <div className="mt-3 rounded-lg bg-stone-50 px-4 py-3 text-sm text-stone-500 ring-1 ring-stone-100">
           {status === 'fulfilled' ? '✓ Completed — this order is fulfilled.' : `This order is ${status}.`} No further actions.
         </div>
+        {status === 'fulfilled' && isShipping && label?.status === 'purchased' && (
+          <>
+            <button className={`${secondary} mt-2`} onClick={() => setModal('label')}>Print label again…</button>
+            {label.tracking_number && (
+              <p className="mt-1 text-xs text-stone-400">Royal Mail tracking: <span className="font-mono">{label.tracking_number}</span></p>
+            )}
+            {modal === 'label' && (
+              <LabelFlow order={order} initialLabel={label} onClose={() => setModal(null)} onDone={() => setModal(null)} />
+            )}
+          </>
+        )}
       </aside>
     );
   }
@@ -145,7 +163,19 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           Re-check packing…
         </button>
       )}
-      {isDelivery && ['preparing', 'packed'].includes(status) && (
+      {isShipping && ['packed', 'courier_booked'].includes(status) && (
+        <button className={hasLabel ? secondary : primary} disabled={busy !== null} onClick={() => setModal('label')}>
+          {label?.status === 'purchased' ? 'Print label again…'
+            : label?.status === 'pending' ? 'Label being bought…'
+            : 'Buy & print Royal Mail label'}
+        </button>
+      )}
+      {isShipping && ['packed', 'courier_booked'].includes(status) && !hasLabel && (
+        <p className="text-xs text-stone-400">
+          Royal Mail Tracked 24. You&apos;ll enter the box size and weight, then print on the Munbyn.
+        </p>
+      )}
+      {isDelivery && !isShipping && ['preparing', 'packed'].includes(status) && (
         <button className={secondary} disabled={busy !== null} onClick={() => setModal('courier')}>
           Courier booked…
         </button>
@@ -176,8 +206,18 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           order={order}
           lineItems={lineItems}
           busy={busy === 'packed'}
+          labelInApp={isShipping}
           onClose={() => setModal(null)}
           onComplete={async () => {
+            if (isShipping) {
+              // Straight on to the label screens — no trip into Shopify.
+              if (status === 'preparing') {
+                const ok = await call('packed', `/api/orders/${order.id}/status`, { status: 'packed' }, `${order.order_number} packed`);
+                if (!ok) return;
+              }
+              setModal('label');
+              return;
+            }
             // Open Shopify first (same user gesture → not popup-blocked).
             window.open(order.shopify_admin_url, '_blank', 'noopener');
             if (status === 'preparing') {
@@ -192,9 +232,26 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
           }}
         />
       )}
+      {modal === 'label' && (
+        <LabelFlow
+          order={order}
+          initialLabel={label}
+          onClose={() => { setModal(null); router.refresh(); }}
+          onDone={() => {
+            setModal(null);
+            toast(`${order.order_number} label done`, 'success');
+            router.refresh();
+          }}
+        />
+      )}
       {modal === 'fulfill' && (
         <FulfillModal
           order={order} groups={groups} lineItems={lineItems}
+          initialTracking={label?.status === 'purchased' ? {
+            number: label.tracking_number ?? '',
+            company: label.tracking_company ?? '',
+            url: label.tracking_url ?? '',
+          } : undefined}
           onClose={() => setModal(null)}
           onConfirm={async (payload) => {
             const ok = await call('fulfill', `/api/orders/${order.id}/fulfill`, payload, `${order.order_number} fulfilled in Shopify`);
@@ -218,10 +275,11 @@ export function ActionsPanel({ order, groups, lineItems, role }: {
 }
 
 /* ── Fulfil confirmation: full/partial quantities, tracking, notify ────── */
-function FulfillModal({ order, groups, lineItems, onClose, onConfirm, busy }: {
+function FulfillModal({ order, groups, lineItems, initialTracking, onClose, onConfirm, busy }: {
   order: OrderRow;
   groups: FulfillmentGroupRow[];
   lineItems: LineItemRow[];
+  initialTracking?: { number: string; company: string; url: string };
   onClose: () => void;
   onConfirm: (payload: unknown) => void;
   busy: boolean;
@@ -234,7 +292,7 @@ function FulfillModal({ order, groups, lineItems, onClose, onConfirm, busy }: {
     return q;
   });
   const [notify, setNotify] = useState(true);
-  const [tracking, setTracking] = useState({ number: '', company: '', url: '' });
+  const [tracking, setTracking] = useState(initialTracking ?? { number: '', company: '', url: '' });
 
   const titleFor = (orderLineItemGid: string) =>
     lineItems.find((li) => li.shopify_line_item_gid === orderLineItemGid)?.title ?? 'Item';

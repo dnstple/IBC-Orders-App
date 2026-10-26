@@ -13,10 +13,12 @@ import { isDeliveryChargeLine } from '@/lib/courier';
  * for label printing. Exitable at any time (X or Escape) without losing
  * order state.
  */
-export function PackingFlow({ order, lineItems, busy, onClose, onComplete }: {
+export function PackingFlow({ order, lineItems, busy, labelInApp = false, onClose, onComplete }: {
   order: OrderRow;
   lineItems: LineItemRow[];
   busy: boolean;
+  /** Shipping orders: the label is bought and printed in the app, not Shopify. */
+  labelInApp?: boolean;
   onClose: () => void;
   onComplete: () => void;
 }) {
@@ -67,7 +69,7 @@ export function PackingFlow({ order, lineItems, busy, onClose, onComplete }: {
         {!atReview ? (
           <ItemScreen item={items[step]} />
         ) : (
-          <ReviewScreen order={order} items={items} />
+          <ReviewScreen order={order} items={items} labelInApp={labelInApp} />
         )}
       </div>
 
@@ -96,7 +98,7 @@ export function PackingFlow({ order, lineItems, busy, onClose, onComplete }: {
               disabled={busy}
               className="min-h-12 flex-1 rounded-xl bg-cocoa-700 px-5 py-3 text-base font-semibold text-white hover:bg-cocoa-600 disabled:opacity-60"
             >
-              {busy ? 'Saving…' : 'Confirm packed & print label ↗'}
+              {busy ? 'Saving…' : labelInApp ? 'Confirm packed — next: label →' : 'Confirm packed & print label ↗'}
             </button>
           )}
         </div>
@@ -158,7 +160,7 @@ function ItemScreen({ item }: { item: LineItemRow }) {
 }
 
 /* ── Final review before packing is confirmed ──────────────────────────── */
-function ReviewScreen({ order, items }: { order: OrderRow; items: LineItemRow[] }) {
+function ReviewScreen({ order, items, labelInApp }: { order: OrderRow; items: LineItemRow[]; labelInApp: boolean }) {
   return (
     <div className="mx-auto max-w-xl">
       <div className="rounded-2xl border border-cocoa-100 bg-white p-6 shadow-sm">
@@ -183,7 +185,11 @@ function ReviewScreen({ order, items }: { order: OrderRow; items: LineItemRow[] 
           </div>
         )}
         <p className="mt-4 text-sm text-stone-500">
-          Confirming marks the order <strong>Packed</strong> and opens it in Shopify to buy &amp; print the shipping label.
+          {labelInApp ? (
+            <>Confirming marks the order <strong>Packed</strong>. Next you&apos;ll close the box, measure and weigh it, and print the Royal Mail label.</>
+          ) : (
+            <>Confirming marks the order <strong>Packed</strong> and opens it in Shopify to buy &amp; print the shipping label.</>
+          )}
         </p>
       </div>
     </div>
