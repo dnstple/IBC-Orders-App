@@ -6,6 +6,7 @@ import type { OrderRow, FulfillmentGroupRow, LineItemRow, ShippingLabelRow } fro
 import { toast } from '@/components/Toaster';
 import { PackingFlow } from '@/components/PackingFlow';
 import { LabelFlow } from '@/components/LabelFlow';
+import { isDemoOrder } from '@/lib/demo';
 
 /**
  * Order workflow (server-enforced; buttons are convenience):
@@ -169,6 +170,11 @@ export function ActionsPanel({ order, groups, lineItems, role, label }: {
             : label?.status === 'pending' ? 'Label being bought…'
             : 'Buy & print Royal Mail label'}
         </button>
+      )}
+      {isShipping && isDemoOrder(order) && (
+        <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 ring-1 ring-sky-200">
+          Practice order (tagged &ldquo;demo&rdquo;) — nothing is bought or changed in Shopify.
+        </p>
       )}
       {isShipping && ['packed', 'courier_booked'].includes(status) && !hasLabel && (
         <p className="text-xs text-stone-400">

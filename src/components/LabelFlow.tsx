@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { OrderRow, ShippingLabelRow } from '@/types/db';
 import { validatePackage, type PackageErrors } from '@/lib/shipping-label';
+import { isDemoOrder } from '@/lib/demo';
 
 /**
  * Royal Mail Tracked 24 label, start to finish, without leaving the app:
@@ -117,6 +118,7 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
   }
 
   const stepNumber = step === 'measure' ? 1 : step === 'print' ? 3 : 2;
+  const practice = isDemoOrder(order);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-cream" role="dialog" aria-modal="true" aria-label={`Shipping label for ${order.order_number}`}>
@@ -140,12 +142,17 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
       <div className="h-1.5 w-full bg-cocoa-100" aria-hidden>
         <div className="h-1.5 bg-cocoa-600 transition-all" style={{ width: `${Math.round((stepNumber / 3) * 100)}%` }} />
       </div>
+      {practice && (
+        <div role="status" className="bg-sky-600 px-4 py-2 text-center text-sm font-semibold text-white">
+          PRACTICE ORDER — nothing will be bought. The label will say &ldquo;DEMO&rdquo;.
+        </div>
+      )}
 
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-xl">
           {step === 'measure' && <MeasureScreen form={form} setForm={setForm} errors={errors} />}
-          {step === 'confirm' && <ConfirmScreen order={order} form={form} />}
+          {step === 'confirm' && <ConfirmScreen order={order} form={form} practice={practice} />}
           {step === 'buying' && <BuyingScreen slow={slow} />}
           {step === 'failed' && <FailedScreen message={failure} />}
           {step === 'print' && label && <PrintScreen order={order} label={label} />}
@@ -162,7 +169,7 @@ export function LabelFlow({ order, initialLabel, onClose, onDone }: {
             <>
               <button onClick={() => setStep('measure')} disabled={submitting} className={backBtn}>← Change</button>
               <button onClick={buy} disabled={submitting} className={primaryBtn}>
-                {submitting ? 'Buying…' : 'Buy label'}
+                {submitting ? 'Buying…' : practice ? 'Buy label (practice — free)' : 'Buy label'}
               </button>
             </>
           )}
@@ -255,7 +262,7 @@ function NumberField({ label, unit, value, error, onChange, integer }: {
 }
 
 /* ── Step 2: check, then buy ───────────────────────────────────────────── */
-function ConfirmScreen({ order, form }: { order: OrderRow; form: Form }) {
+function ConfirmScreen({ order, form, practice }: { order: OrderRow; form: Form; practice: boolean }) {
   const a = order.delivery_address ?? {};
   return (
     <div className="rounded-2xl border border-cocoa-100 bg-white p-6 shadow-sm">
@@ -278,10 +285,17 @@ function ConfirmScreen({ order, form }: { order: OrderRow; form: Form }) {
           </dd>
         </div>
       </dl>
-      <div className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
-        Tapping <strong>Buy label</strong> pays for postage on the shop&apos;s Shopify account and emails the customer
-        their tracking number. Only tap it <strong>once</strong>.
-      </div>
+      {practice ? (
+        <div className="mt-5 rounded-xl bg-sky-50 p-3 text-sm text-sky-900 ring-1 ring-sky-200">
+          Practice order: tapping <strong>Buy label</strong> makes a free placeholder label. Nothing is paid for and
+          the customer isn&apos;t emailed.
+        </div>
+      ) : (
+        <div className="mt-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
+          Tapping <strong>Buy label</strong> pays for postage on the shop&apos;s Shopify account and emails the customer
+          their tracking number. Only tap it <strong>once</strong>.
+        </div>
+      )}
     </div>
   );
 }
