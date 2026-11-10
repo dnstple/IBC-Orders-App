@@ -1,0 +1,141 @@
+import { describe, expect, it } from 'vitest';
+import { decide, intoSendWindow, londonDateTime, type Visit, type DecideContext } from '@/lib/visit-emails/eligibility';
+import { destinationUrl, fill, renderEmail } from '@/lib/visit-emails/render';
+import { DEFAULT_SETTINGS, normaliseSettings, type VisitEmailSettings } from '@/lib/visit-emails/settings';
+
+const S = (o: Partial<VisitEmailSettings> = {}): VisitEmailSettings =>
+  normaliseSettings({ ...DEFAULT_SETTINGS, arrived_statuses: ['seated', 'completed'], mode: 'dry_run', ...o });
+
+const visit = (o: Partial<Visit> = {}): Visit => ({
+  shop: 'soho', id: 'A1', date: '2026-11-08', time: '14:00', starts_at: '2026-11-08T14:00:00+00:00', party_size: 2,
+  status: { id: 4, code: 'completed', name: 'Completed' }, first_name: 'Ada', email: 'ada@example.com', marketing: 'yes', ...o,
+});
+
+const ctx = (o: Partial<DecideContext> = {}): DecideContext => ({
+  now: new Date('2026-11-09T12:00:00Z'), source: 'auto', suppressed: new Set(), recent: new Set(), ...o,
+});
+
+describe('decide', () => {
+  it('queues an opted-in guest who arrived, delay hours after the booking, inside the window', () => {
+    const d = decide(visit(), S({ delay_hours: 20 }), ctx({ now: new Date('2026-11-08T18:00:00Z') }));
+    expect(d).toEqual({ action: 'queue', variant: 'marketing', dueAt: new Date('2026-11-09T10:00:00Z') });
+  });
+
+  it('moves an evening due time to the next morning', () => {
+    const d = decide(visit({ starts_at: '2026-11-08T19:00:00+00:00' }), S({ delay_hours: 1 }), ctx({ now: new Date('2026-11-08T20:30:00Z') }));
+    expect(d.action === 'queue' && d.dueAt.toISOString()).toBe('2026-11-09T10:00:00.000Z');
+  });
+
+  it('respects the marketing switch', () => {
+    expect(decide(visit({ marketing: 'no' }), S(), ctx())).toEqual({ action: 'skip', reason: 'marketing_no' });
+    expect(decide(visit({ marketing: null }), S(), ctx())).toEqual({ action: 'skip', reason: 'marketing_unanswered' });
+  });
+
+  it('with the switch off, non-opted-in guests get the plain version (or full, if chosen)', () => {
+    const off = S({ respect_marketing: false });
+    expect(decide(visit({ marketing: 'no' }), off, ctx())).toMatchObject({ action: 'queue', variant: 'plain' });
+    expect(decide(visit({ marketing: null }), off, ctx())).toMatchObject({ action: 'queue', variant: 'plain' });
+    expect(decide(visit({ marketing: 'yes' }), off, ctx())).toMatchObject({ action: 'queue', variant: 'marketing' });
+    expect(decide(visit({ marketing: 'no' }), S({ respect_marketing: false, plain_for_non_opted_in: false }), ctx()))
+      .toMatchObject({ action: 'queue', variant: 'marketing' });
+  });
+
+  it('waits for the status to settle, then skips no-shows', () => {
+    const ns = visit({ status: { id: 5, code: 'no_show', name: 'No Show' } });
+    expect(decide(ns, S(), ctx())).toEqual({ action: 'wait' });
+    expect(decide(ns, S(), ctx({ now: new Date('2026-11-10T15:00:00Z') }))).toEqual({ action: 'skip', reason: 'not_arrived' });
+  });
+
+  it('records nothing until arrival statuses are chosen', () => {
+    expect(decide(visit(), S({ arrived_statuses: [] }), ctx({ now: new Date('2026-11-20T12:00:00Z') }))).toEqual({ action: 'wait' });
+  });
+
+  it('skips opted-out, duplicate and email-less guests', () => {
+    expect(decide(visit(), S(), ctx({ suppressed: new Set(['ada@example.com']) }))).toEqual({ action: 'skip', reason: 'opted_out' });
+    expect(decide(visit(), S(), ctx({ recent: new Set(['ada@example.com']) }))).toEqual({ action: 'skip', reason: 'duplicate' });
+    expect(decide(visit({ email: null }), S(), ctx())).toEqual({ action: 'skip', reason: 'no_email' });
+  });
+
+  it('skips cafés that are switched off', () => {
+    expect(decide(visit(), S({ shops: ['fitzrovia'] }), ctx())).toEqual({ action: 'skip', reason: 'shop_off' });
+  });
+
+  it('automatic emails ignore visits before the go-live date and skip very late ones', () => {
+    expect(decide(visit(), S({ auto_from_date: '2026-11-09' }), ctx())).toEqual({ action: 'ignore' });
+    expect(decide(visit(), S({ max_late_days: 1 }), ctx({ now: new Date('2026-11-12T12:00:00Z') }))).toEqual({ action: 'skip', reason: 'too_late' });
+  });
+
+  it('backfill sends old visits now (inside the window), ignoring go-live date and lateness', () => {
+    const d = decide(visit({ date: '2026-09-01', starts_at: '2026-09-01T13:00:00+01:00' }), S({ auto_from_date: '2026-11-01' }),
+      ctx({ source: 'backfill', now: new Date('2026-11-09T12:00:00Z') }));
+    expect(d).toEqual({ action: 'queue', variant: 'marketing', dueAt: new Date('2026-11-09T12:00:00Z') });
+  });
+
+  it('never decides a booking that has not happened yet', () => {
+    expect(decide(visit({ starts_at: '2026-11-10T14:00:00+00:00' }), S(), ctx())).toEqual({ action: 'wait' });
+  });
+});
+
+describe('London time', () => {
+  it('handles BST and GMT', () => {
+    expect(londonDateTime('2026-07-01', 10).toISOString()).toBe('2026-07-01T09:00:00.000Z');
+    expect(londonDateTime('2026-12-01', 10).toISOString()).toBe('2026-12-01T10:00:00.000Z');
+  });
+  it('keeps times already inside the window', () => {
+    const d = new Date('2026-07-01T12:00:00Z');
+    expect(intoSendWindow(d, { send_window_start_hour: 10, send_window_end_hour: 19 })).toBe(d);
+  });
+});
+
+describe('render', () => {
+  it('fills placeholders and drops a missing first name cleanly', () => {
+    expect(fill('Thank you for visiting, {first_name}', { firstName: '', shop: 'soho', visitDate: '2026-11-08' })).toBe('Thank you for visiting');
+    expect(fill('Hi {first_name}, {shop} on {visit_day}', { firstName: 'Ada', shop: 'fitzrovia', visitDate: '2026-11-08' }))
+      .toBe('Hi Ada, Fitzrovia on Sunday 8 November');
+  });
+
+  it('tags our own links with UTMs but leaves review sites alone, and prefers the per-café address', () => {
+    const s = S();
+    const shopLink = s.links.find((l) => l.key === 'shop')!;
+    const u = new URL(destinationUrl(shopLink, 'soho', s));
+    expect(u.searchParams.get('utm_campaign')).toBe('thank-you-for-visiting');
+    expect(u.searchParams.get('utm_content')).toBe('shop-soho');
+    const review = { key: 'review', label: 'Review', url: 'https://g.page/r/default', shop_urls: { fitzrovia: 'https://g.page/r/fitz' }, show_in: 'all' as const };
+    expect(destinationUrl(review, 'fitzrovia', s)).toBe('https://g.page/r/fitz');
+    expect(destinationUrl(review, 'soho', s)).toBe('https://g.page/r/default');
+  });
+
+  it('plain version leaves out marketing-only buttons; every button is a tracked link', () => {
+    const s = S({ links: [
+      { key: 'review', label: 'Review', url: 'https://g.page/r/x', show_in: 'all' },
+      { key: 'shop', label: 'Shop', url: 'https://italianbearchocolate.com/collections/all', show_in: 'marketing' },
+    ] });
+    const plain = renderEmail(s, { token: 'abc123', appUrl: 'https://app.test/', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-08', variant: 'plain' });
+    expect(plain.links.map((l) => l.key)).toEqual(['review']);
+    expect(plain.html).toContain('https://app.test/r/abc123/review');
+    expect(plain.html).not.toContain('collections/all');
+    expect(plain.optOutUrl).toBe('https://app.test/r/abc123/unsubscribe');
+    const full = renderEmail(s, { token: 'abc123', appUrl: 'https://app.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-08', variant: 'marketing' });
+    expect(full.links.map((l) => l.key)).toEqual(['review', 'shop']);
+  });
+
+  it('escapes guest names and reports links with no address', () => {
+    const e = renderEmail(S(), { token: 't', appUrl: 'https://app.test', shop: 'soho', firstName: '<script>x</script>', visitDate: '2026-11-08', variant: 'marketing' });
+    expect(e.html).not.toContain('<script>');
+    expect(e.missingLinks).toEqual(['Leave us a review']);
+  });
+});
+
+describe('normaliseSettings', () => {
+  it('fills defaults, drops bad links and reserved keys, and clamps numbers', () => {
+    const s = normaliseSettings({
+      mode: 'nonsense', batch_size: 9999, send_window_start_hour: 20, send_window_end_hour: 8,
+      links: [{ key: 'unsubscribe', label: 'x', url: 'https://a.b' }, { key: 'Shop!', label: 'Shop', url: 'javascript:alert(1)' }],
+    });
+    expect(s.mode).toBe('off');
+    expect(s.batch_size).toBe(200);
+    expect(s.send_window_end_hour).toBe(21);
+    expect(s.links).toEqual([{ key: 'shop', label: 'Shop', url: '', shop_urls: { soho: '', fitzrovia: '' }, show_in: 'all' }]);
+    expect(s.respect_marketing).toBe(true);
+  });
+});

@@ -36,7 +36,8 @@ export async function middleware(request: NextRequest) {
     pathname === '/api/signup' ||
     pathname === '/api/login' ||
     pathname.startsWith('/api/webhooks') ||
-    pathname.startsWith('/api/cron');
+    pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/r/'); // tracked links + opt-out in visit emails
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

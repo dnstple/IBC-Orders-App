@@ -11,9 +11,10 @@ import type { OrderRow } from '@/types/db';
 
 type Board = 'pickups' | 'deliveries';
 
-const TABS: Array<{ href: string; label: string; board?: Board }> = [
+const TABS: Array<{ href: string; label: string; board?: Board; managerOnly?: boolean }> = [
   { href: '/pickups', label: 'Pickups', board: 'pickups' },
   { href: '/deliveries', label: 'Deliveries', board: 'deliveries' },
+  { href: '/visit-emails', label: 'Visit emails', managerOnly: true },
   { href: '/settings', label: 'Settings' },
 ];
 
@@ -51,21 +52,22 @@ function useBoardCounts(): Counts | null {
   return counts;
 }
 
-export function Nav(_props: { role?: 'staff' | 'manager' | 'admin' }) {
+export function Nav({ role }: { role?: 'staff' | 'manager' | 'admin' }) {
   const pathname = usePathname();
   const counts = useBoardCounts();
 
   // No tab bar inside an order — the Back button handles navigation there,
   // and this sidesteps legacy iPads mispainting the fixed bar on scroll.
   if (pathname.startsWith('/orders/')) return null;
+  const tabs = TABS.filter((t) => !t.managerOnly || role === 'manager' || role === 'admin');
 
   return (
     <nav
       aria-label="Main"
       className="ib-tabbar z-10 w-full max-w-full border-t border-cocoa-100 bg-white pb-[env(safe-area-inset-bottom)] sm:rounded-xl sm:border sm:pb-0"
     >
-      <div className="mx-auto grid w-full max-w-5xl grid-cols-3">
-        {TABS.map((t) => {
+      <div className={`mx-auto grid w-full max-w-5xl ${tabs.length === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        {tabs.map((t) => {
           const active = pathname.startsWith(t.href);
           const c = t.board && counts ? counts[t.board] : null;
           return (
