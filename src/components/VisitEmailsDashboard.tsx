@@ -27,7 +27,7 @@ async function api(path: string, body?: unknown) {
 /**
  * Visit emails tab: one thank-you email after a guest's visit.
  * Top: what's happening (mode, numbers, clicks). Below: settings, copy,
- * backfill and logs. Every action is re-checked server-side (manager+).
+ * backfill and logs. Every action is re-checked server-side (admin only).
  */
 export function VisitEmailsDashboard({ initialSettings }: { initialSettings: VisitEmailSettings }) {
   const [saved, setSaved] = useState(initialSettings);

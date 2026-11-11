@@ -1,7 +1,7 @@
 # Visit emails (thank-you after a visit)
 
 One email to each guest after a table booking at Soho or Fitzrovia, once
-TableAgent shows they arrived. Managers run it from the **Visit emails** tab.
+TableAgent shows they arrived. Admins run it from the **Visit emails** tab (hidden from staff and managers).
 
 ## How it works
 

@@ -13,9 +13,9 @@ const mask = (e: string | null) => {
   return `${u.slice(0, 1)}${'•'.repeat(Math.max(1, Math.min(u.length - 1, 6)))}@${d}`;
 };
 
-/** Manager+: everything the Visit emails dashboard shows. */
+/** Admin only: everything the Visit emails dashboard shows. */
 export async function GET() {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   const db = supabaseAdmin();
   const today = londonDay();

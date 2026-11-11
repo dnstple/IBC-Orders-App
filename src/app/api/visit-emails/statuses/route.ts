@@ -4,9 +4,9 @@ import { recentStatuses } from '@/lib/visit-emails/engine';
 
 export const runtime = 'nodejs';
 
-/** Manager+: TableAgent status codes seen in the last 3 weeks, to pick which mean "arrived". */
+/** Admin only: TableAgent status codes seen in the last 3 weeks, to pick which mean "arrived". */
 export async function GET() {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   try {
     return NextResponse.json({ statuses: await recentStatuses() });

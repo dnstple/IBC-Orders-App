@@ -4,9 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { londonDay } from '@/lib/visit-emails/eligibility';
 import { liveSendingAllowed, normaliseSettings } from '@/lib/visit-emails/settings';
 
-/** Manager+: save the Visit emails settings and copy. */
+/** Admin only: save the Visit emails settings and copy. */
 export async function POST(req: NextRequest) {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   const body = await req.json().catch(() => null);
   const next = normaliseSettings(body);

@@ -6,12 +6,12 @@ import { renderEmail } from '@/lib/visit-emails/render';
 import { normaliseSettings } from '@/lib/visit-emails/settings';
 
 /**
- * Manager+: renders the email from the settings on screen (saved or not),
+ * Admin only: renders the email from the settings on screen (saved or not),
  * so copy can be checked before saving. Links point at /r/preview/..., which
  * redirects without counting a click. Sends nothing.
  */
 export async function POST(req: NextRequest) {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   const body = await req.json().catch(() => ({}));
   const s = normaliseSettings(body.settings);

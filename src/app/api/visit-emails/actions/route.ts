@@ -3,13 +3,13 @@ import { requireRole } from '@/lib/permissions';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 /**
- * Manager+: housekeeping on the Visit emails tab.
+ * Admin only: housekeeping on the Visit emails tab.
  *   requeue_dry_run - put dry-run emails back in the queue (e.g. when going live)
  *   cancel_queued   - cancel everything still waiting to send
  *   suppress        - never email this address (also cancels its queued email)
  */
 export async function POST(req: NextRequest) {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   const body = await req.json().catch(() => ({}));
   const db = supabaseAdmin();

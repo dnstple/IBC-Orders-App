@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 /**
- * Manager+: backdate the thank-you email to earlier visits.
+ * Admin only: backdate the thank-you email to earlier visits.
  *   { from, to, action: 'preview' } -> counts only, nothing saved
  *   { from, to, action: 'queue' }   -> records decisions; queued emails then go
  *                                      out in batches (batch size / daily cap)
@@ -16,7 +16,7 @@ export const maxDuration = 60;
  * opt-outs, one email per address), minus the "too late" rule.
  */
 export async function POST(req: NextRequest) {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   const body = await req.json().catch(() => ({}));
   const s = await loadSettings();

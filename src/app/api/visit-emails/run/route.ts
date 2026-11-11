@@ -5,9 +5,9 @@ import { runVisitEmails } from '@/lib/visit-emails/engine';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-/** Manager+: "Run now" on the Visit emails tab (same as one cron run). */
+/** Admin only: "Run now" on the Visit emails tab (same as one cron run). */
 export async function POST() {
-  const gate = await requireRole('manager');
+  const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   return NextResponse.json(await runVisitEmails('manual'));
 }

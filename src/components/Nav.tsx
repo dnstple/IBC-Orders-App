@@ -11,10 +11,10 @@ import type { OrderRow } from '@/types/db';
 
 type Board = 'pickups' | 'deliveries';
 
-const TABS: Array<{ href: string; label: string; board?: Board; managerOnly?: boolean }> = [
+const TABS: Array<{ href: string; label: string; board?: Board; adminOnly?: boolean }> = [
   { href: '/pickups', label: 'Pickups', board: 'pickups' },
   { href: '/deliveries', label: 'Deliveries', board: 'deliveries' },
-  { href: '/visit-emails', label: 'Visit emails', managerOnly: true },
+  { href: '/visit-emails', label: 'Visit emails', adminOnly: true },
   { href: '/settings', label: 'Settings' },
 ];
 
@@ -59,7 +59,7 @@ export function Nav({ role }: { role?: 'staff' | 'manager' | 'admin' }) {
   // No tab bar inside an order — the Back button handles navigation there,
   // and this sidesteps legacy iPads mispainting the fixed bar on scroll.
   if (pathname.startsWith('/orders/')) return null;
-  const tabs = TABS.filter((t) => !t.managerOnly || role === 'manager' || role === 'admin');
+  const tabs = TABS.filter((t) => !t.adminOnly || role === 'admin');
 
   return (
     <nav
