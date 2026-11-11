@@ -72,7 +72,7 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
       <StatusCard s={saved} stats={stats} busy={busy} onRun={runNow} />
       <Overview s={saved} stats={stats} />
       <SettingsCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} onReset={() => setS(saved)} liveAllowed={!!stats?.server?.liveAllowed} />
-      <CopyCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} />
+      <CopyCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} resendReady={!!stats?.server?.resendConfigured} />
       <Backfill s={saved} dirty={dirty} onDone={load} />
       <Activity stats={stats} />
       <Housekeeping onDone={load} />
@@ -337,7 +337,40 @@ function SettingsCard({ s, set, dirty, busy, onSave, onReset, liveAllowed }: {
 }
 
 /* ── Copy + links + preview ─────────────────────────────────────────────── */
-function CopyCard({ s, set, dirty, busy, onSave }: { s: VisitEmailSettings; set: SetFn; dirty: boolean; busy: string; onSave: () => void }) {
+/** Sends this exact preview to one address typed in. Never to guests; works in any mode once Resend is set up. */
+function TestSend({ s, variant, shop, ready }: { s: VisitEmailSettings; variant: 'marketing' | 'plain'; shop: Shop; ready: boolean }) {
+  const [to, setTo] = useState('');
+  const [name, setName] = useState('Sofia');
+  const [sending, setSending] = useState(false);
+  async function send() {
+    setSending(true);
+    try {
+      await api('/api/visit-emails/test', { to, settings: s, variant, shop, first_name: name });
+      toast(`Test sent to ${to}. Check the inbox (and spam).`, 'success');
+    } catch (e) { toast((e as Error).message, 'error'); }
+    setSending(false);
+  }
+  return (
+    <div className="mt-4 rounded-lg border border-stone-200 p-3">
+      <h3 className="text-sm font-semibold">Send a test to…</h3>
+      <p className="mt-1 text-xs text-stone-500">
+        Sends this preview (the version and café chosen above, with any unsaved changes) to one address only, subject starting [TEST].
+        Never goes to a guest. Clicks on a test aren't counted.
+      </p>
+      {!ready ? (
+        <p className="mt-2 text-sm text-amber-800">Needs Resend first: add RESEND_API_KEY in Vercel and redeploy.</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          <label className="block text-sm">Email address<input type="email" value={to} onChange={(e) => setTo(e.target.value)} className={input} placeholder="you@example.com" /></label>
+          <label className="block text-sm">First name to use<input value={name} onChange={(e) => setName(e.target.value)} className={input} /></label>
+          <button className={btn} disabled={!to || sending} onClick={send}>{sending ? 'Sending…' : 'Send test'}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CopyCard({ s, set, dirty, busy, onSave, resendReady }: { s: VisitEmailSettings; set: SetFn; dirty: boolean; busy: string; onSave: () => void; resendReady: boolean }) {
   const [variant, setVariant] = useState<'marketing' | 'plain'>('marketing');
   const [shop, setShop] = useState<Shop>('soho');
   const [preview, setPreview] = useState<{ subject: string; html: string; missingLinks: string[] } | null>(null);
@@ -433,6 +466,7 @@ function CopyCard({ s, set, dirty, busy, onSave }: { s: VisitEmailSettings; set:
               <iframe title="Email preview" srcDoc={preview.html} sandbox="" className="mt-2 h-[640px] w-full rounded-lg border border-stone-200 bg-white" />
             </>
           )}
+          <TestSend s={s} variant={variant} shop={shop} ready={resendReady} />
         </div>
       </div>
     </section>

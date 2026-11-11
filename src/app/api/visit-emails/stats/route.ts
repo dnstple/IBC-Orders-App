@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { feedConfigured } from '@/lib/visit-emails/feed';
 import { addDays, londonDateTime, londonDay } from '@/lib/visit-emails/eligibility';
 import { liveSendingAllowed } from '@/lib/visit-emails/settings';
+import { resendConfigured } from '@/lib/visit-emails/sender';
 
 export const runtime = 'nodejs';
 
@@ -79,7 +80,7 @@ export async function GET() {
 
   return NextResponse.json({
     today,
-    server: { feedConfigured: feedConfigured(), liveAllowed: liveSendingAllowed(), appUrl: process.env.NEXT_PUBLIC_APP_URL ?? '' },
+    server: { feedConfigured: feedConfigured(), liveAllowed: liveSendingAllowed(), resendConfigured: resendConfigured(), appUrl: process.env.NEXT_PUBLIC_APP_URL ?? '' },
     totals: {
       sent, dry_run: byState.dry_run ?? 0, queued: byState.queued ?? 0, failed: byState.failed ?? 0,
       skipped: (byState.skipped ?? 0) + (byState.cancelled ?? 0), doneToday, nextDue,

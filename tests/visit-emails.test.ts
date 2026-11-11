@@ -139,3 +139,36 @@ describe('normaliseSettings', () => {
     expect(s.respect_marketing).toBe(true);
   });
 });
+
+import { vi, afterEach } from 'vitest';
+import { sendEmail, sendTestEmail, LiveSendingLocked } from '@/lib/visit-emails/sender';
+
+describe('sender locks', () => {
+  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+  const email = () => renderEmail(S(), { token: 'preview', appUrl: 'https://app.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-08', variant: 'plain' });
+
+  it('test send refuses without a Resend key and never calls the network', async () => {
+    const f = vi.fn(); vi.stubGlobal('fetch', f);
+    vi.stubEnv('RESEND_API_KEY', '');
+    await expect(sendTestEmail(S(), 'me@example.com', email())).rejects.toThrow(/Resend is not set up/);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('test send goes to the one address with a [TEST] subject', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'r1' }) }); vi.stubGlobal('fetch', f);
+    vi.stubEnv('RESEND_API_KEY', 'k');
+    await sendTestEmail(S(), 'me@example.com', email());
+    const body = JSON.parse(f.mock.calls[0][1].body);
+    expect(body.to).toEqual(['me@example.com']);
+    expect(body.subject).toMatch(/^\[TEST\] /);
+  });
+
+  it('guest sending stays locked with a key but without live mode + VISIT_EMAILS_ALLOW_LIVE', async () => {
+    const f = vi.fn(); vi.stubGlobal('fetch', f);
+    vi.stubEnv('RESEND_API_KEY', 'k');
+    await expect(sendEmail(S({ mode: 'dry_run' }), 'g@example.com', email(), 'x')).rejects.toBeInstanceOf(LiveSendingLocked);
+    vi.stubEnv('VISIT_EMAILS_ALLOW_LIVE', 'false');
+    await expect(sendEmail(S({ mode: 'live' }), 'g@example.com', email(), 'x')).rejects.toBeInstanceOf(LiveSendingLocked);
+    expect(f).not.toHaveBeenCalled();
+  });
+});
