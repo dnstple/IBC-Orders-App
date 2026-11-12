@@ -61,10 +61,16 @@ export interface VisitEmailSettings {
   subject: string;
   preheader: string;
   heading: string;
-  /** Paragraphs separated by a blank line. Placeholders: {first_name} {shop} {visit_day} */
+  /**
+   * Paragraphs separated by a blank line. Placeholders: {first_name} {shop}
+   * {visit_day} (Wednesday) {visit_date} (Wednesday 11 November).
+   * Markup: **bold** and [link words](https://...).
+   */
   body_marketing: string;
   body_plain: string;
   signoff: string;
+  /** Script line at the very end, as on the website. Blank = none. */
+  tagline: string;
   links: VisitEmailLink[];
   /** Footer link that stops further emails. Recommended even for a one-off email. */
   include_opt_out: boolean;
@@ -103,6 +109,7 @@ export const DEFAULT_SETTINGS: VisitEmailSettings = {
     "It was lovely to welcome you to our {shop} café on {visit_day}. We hope you enjoyed your time with us.\n\n" +
     "If you have a moment, we'd be very grateful for a quick review.",
   signoff: 'See you again soon,\nThe Italian Bear Chocolate team',
+  tagline: 'All you need is chocolate',
   links: [
     { key: 'review', label: 'Leave us a review', url: '', shop_urls: { soho: '', fitzrovia: '' }, show_in: 'all' },
     { key: 'shop', label: 'Shop online', url: 'https://italianbearchocolate.com/collections/all', show_in: 'marketing' },
@@ -141,7 +148,7 @@ export function normaliseSettings(raw: unknown): VisitEmailSettings {
   for (const l of Array.isArray(r.links) ? r.links : d.links) {
     const o = (l ?? {}) as Record<string, unknown>;
     const key = String(o.key ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
-    if (!key || seen.has(key) || RESERVED_LINK_KEYS.has(key)) continue;
+    if (!key || seen.has(key) || RESERVED_LINK_KEYS.has(key) || key.startsWith('t-')) continue; // t-… = inline links
     seen.add(key);
     const shopUrls: Partial<Record<Shop, string>> = {};
     const su = (o.shop_urls ?? {}) as Record<string, unknown>;
@@ -187,6 +194,7 @@ export function normaliseSettings(raw: unknown): VisitEmailSettings {
     body_marketing: str(r.body_marketing, d.body_marketing, 4000),
     body_plain: str(r.body_plain, d.body_plain, 4000),
     signoff: str(r.signoff, d.signoff, 300),
+    tagline: str(r.tagline, d.tagline, 80),
     links,
     include_opt_out: bool(r.include_opt_out, d.include_opt_out),
     utm_source: str(r.utm_source, d.utm_source, 60).trim() || d.utm_source,

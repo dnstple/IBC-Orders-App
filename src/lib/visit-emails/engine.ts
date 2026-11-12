@@ -220,3 +220,60 @@ export async function recentStatuses(days = 21) {
   const feed = await fetchVisits(addDays(today, -days), today);
   return feed.statuses;
 }
+
+export interface SampleRow {
+  shop: string;
+  booking_id: string;
+  date: string;
+  time: string;
+  party_size: number | null;
+  status: string;
+  first_name: string;
+  email: string | null;
+  marketing: 'yes' | 'no' | null;
+  /** queue = would be emailed; skip = not emailed; wait = too early to tell; ignore = before go-live (auto) ; handled = already decided */
+  action: 'queue' | 'skip' | 'wait' | 'ignore' | 'handled';
+  reason?: string;
+  variant?: 'marketing' | 'plain';
+  due_at?: string;
+  source: 'auto' | 'backfill';
+  handled_state?: string;
+}
+
+/**
+ * Admin "check the data" view: every booking in the range with what the
+ * rules would do and the raw values they used. Nothing is saved. Visits on
+ * or after the go-live date use the automatic rules, older ones the
+ * backfill rules - exactly what would happen for real.
+ */
+export async function sampleVisits(from: string, to: string, s: VisitEmailSettings, now = new Date()) {
+  const feed = await fetchVisits(from, to);
+  const rows = feed.rows.sort((a, b) => visitStart(a).getTime() - visitStart(b).getTime());
+  const keys = rows.map(keyOf);
+  const handled = new Map<string, string>();
+  for (let i = 0; i < keys.length; i += 500) {
+    const { data } = await supabaseAdmin().from('visit_emails').select('booking_key, state').in('booking_key', keys.slice(i, i + 500));
+    for (const r of data ?? []) handled.set(r.booking_key, r.state);
+  }
+  const emails = rows.map((v) => (v.email ?? '').toLowerCase());
+  const suppressed = await suppressedSet(emails);
+  const recent = await recentSet(emails, s, now);
+
+  const out: SampleRow[] = [];
+  for (const v of rows) {
+    const source: 'auto' | 'backfill' = s.auto_from_date && v.date >= s.auto_from_date ? 'auto' : 'backfill';
+    const row: SampleRow = {
+      shop: v.shop, booking_id: v.id, date: v.date, time: v.time, party_size: v.party_size, status: v.status.name || v.status.code,
+      first_name: v.first_name, email: v.email, marketing: v.marketing, action: 'wait', source,
+    };
+    const st = handled.get(keyOf(v));
+    if (st) { out.push({ ...row, action: 'handled', handled_state: st }); continue; }
+    const d = decide(v, s, { now, source, suppressed, recent });
+    if (d.action === 'queue') {
+      recent.add((v.email ?? '').toLowerCase());
+      out.push({ ...row, action: 'queue', variant: d.variant, due_at: d.dueAt.toISOString() });
+    } else if (d.action === 'skip') out.push({ ...row, action: 'skip', reason: d.reason });
+    else out.push({ ...row, action: d.action });
+  }
+  return { rows: out, statuses: feed.statuses, feedErrors: feed.errors };
+}

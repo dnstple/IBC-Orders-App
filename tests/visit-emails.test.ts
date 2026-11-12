@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decide, intoSendWindow, londonDateTime, type Visit, type DecideContext } from '@/lib/visit-emails/eligibility';
-import { destinationUrl, fill, renderEmail } from '@/lib/visit-emails/render';
+import { destinationUrl, fill, findLink, inlineKey, renderEmail } from '@/lib/visit-emails/render';
 import { DEFAULT_SETTINGS, normaliseSettings, type VisitEmailSettings } from '@/lib/visit-emails/settings';
 
 const S = (o: Partial<VisitEmailSettings> = {}): VisitEmailSettings =>
@@ -91,7 +91,8 @@ describe('render', () => {
   it('fills placeholders and drops a missing first name cleanly', () => {
     expect(fill('Thank you for visiting, {first_name}', { firstName: '', shop: 'soho', visitDate: '2026-11-08' })).toBe('Thank you for visiting');
     expect(fill('Hi {first_name}, {shop} on {visit_day}', { firstName: 'Ada', shop: 'fitzrovia', visitDate: '2026-11-08' }))
-      .toBe('Hi Ada, Fitzrovia on Sunday 8 November');
+      .toBe('Hi Ada, Fitzrovia on Sunday');
+    expect(fill('{visit_date}', { firstName: '', shop: 'soho', visitDate: '2026-11-08' })).toBe('Sunday 8 November');
   });
 
   it('tags our own links with UTMs but leaves review sites alone, and prefers the per-café address', () => {
@@ -170,5 +171,45 @@ describe('sender locks', () => {
     vi.stubEnv('VISIT_EMAILS_ALLOW_LIVE', 'false');
     await expect(sendEmail(S({ mode: 'live' }), 'g@example.com', email(), 'x')).rejects.toBeInstanceOf(LiveSendingLocked);
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('copy markup, fonts and tagline', () => {
+  const base = { token: 'tok123', appUrl: 'https://app.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-11', variant: 'marketing' as const };
+
+  it('turns **bold** and [text](url) into HTML, tracked, and plain text alternatives', () => {
+    const s = S({ body_marketing: 'We **loved** having you. See [our hampers](https://italianbearchocolate.com/collections/hampers).' });
+    const e = renderEmail(s, base);
+    const key = inlineKey('https://italianbearchocolate.com/collections/hampers');
+    expect(e.html).toContain('<strong>loved</strong>');
+    expect(e.html).toContain(`href="https://app.test/r/tok123/${key}"`);
+    expect(e.html).not.toContain('**');
+    expect(e.text).toContain(`our hampers (https://app.test/r/tok123/${key})`);
+    expect(e.text).toContain('We loved having you.');
+    // the redirect can find it, and it gets UTM tags like the buttons
+    const l = findLink(s, key)!;
+    expect(l.label).toBe('our hampers');
+    expect(new URL(destinationUrl(l, 'soho', s)).searchParams.get('utm_content')).toBe(`${key}-soho`);
+  });
+
+  it('escapes HTML inside bold and links, and ignores non-https links', () => {
+    const s = S({ body_marketing: '**<b>x</b>** and [click](javascript:alert(1))' });
+    const e = renderEmail(s, base);
+    expect(e.html).toContain('<strong>&lt;b&gt;x&lt;/b&gt;</strong>');
+    expect(e.html).not.toContain('href="javascript');
+  });
+
+  it('ends with the tagline in the website script font, and uses the site fonts', () => {
+    const e = renderEmail(S(), base);
+    expect(e.html).toContain('All you need is chocolate');
+    expect(e.html).toMatch(/Cookie/);
+    expect(e.html).toMatch(/Oswald/);
+    expect(e.html).toMatch(/Cabin/);
+    expect(e.text.trimEnd().endsWith('All you need is chocolate') || e.text.includes('team' + String.fromCharCode(10, 10) + 'All you need is chocolate')).toBe(true);
+    expect(renderEmail(S({ tagline: '' }), base).html).not.toContain('All you need is chocolate');
+  });
+
+  it('button keys cannot pretend to be inline links', () => {
+    expect(normaliseSettings({ links: [{ key: 't-abc', label: 'x', url: 'https://a.b' }] }).links).toEqual([]);
   });
 });

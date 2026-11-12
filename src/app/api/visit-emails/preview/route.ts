@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     appUrl: appUrl(),
     shop: body.shop === 'fitzrovia' ? 'fitzrovia' : 'soho',
     firstName: typeof body.first_name === 'string' ? body.first_name.slice(0, 60) : 'Sofia',
-    visitDate: addDays(londonDay(), -1),
+    visitDate: /^\d{4}-\d{2}-\d{2}$/.test(body.visit_date ?? '') ? body.visit_date : addDays(londonDay(), -1),
     variant: body.variant === 'plain' ? 'plain' : 'marketing',
   });
   return NextResponse.json(email);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { loadSettings } from '@/lib/visit-emails/engine';
-import { destinationUrl } from '@/lib/visit-emails/render';
+import { destinationUrl, findLink } from '@/lib/visit-emails/render';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (link === 'unsubscribe') return page(token, false);
 
   const s = await loadSettings();
-  const l = s.links.find((x) => x.key === link);
+  const l = findLink(s, link);
   if (token === 'preview') {
     const shop = req.nextUrl.searchParams.get('shop') ?? 'soho';
     return NextResponse.redirect(l ? destinationUrl(l, shop, s) || HOME : HOME, 302);

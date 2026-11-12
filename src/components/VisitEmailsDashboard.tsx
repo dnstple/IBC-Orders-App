@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/Toaster';
 import { SKIP_LABELS } from '@/lib/visit-emails/eligibility';
+import { findLink } from '@/lib/visit-emails/render';
 import { SHOPS, type Shop, type VisitEmailLink, type VisitEmailSettings } from '@/lib/visit-emails/settings';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -73,6 +74,7 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
       <Overview s={saved} stats={stats} />
       <SettingsCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} onReset={() => setS(saved)} liveAllowed={!!stats?.server?.liveAllowed} />
       <CopyCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} resendReady={!!stats?.server?.resendConfigured} />
+      <DataCheck s={s} />
       <Backfill s={saved} dirty={dirty} onDone={load} />
       <Activity stats={stats} />
       <Housekeeping onDone={load} />
@@ -160,7 +162,7 @@ function Overview({ s, stats }: { s: VisitEmailSettings; stats: Stats }) {
               <thead><tr className="text-left text-xs text-stone-500"><th className="py-1">Link</th><th className="text-right">Clicks</th><th className="text-right">People</th><th className="text-right" title="Email security scanners, not counted">Scanners</th></tr></thead>
               <tbody>{stats.links.map((l: any) => (
                 <tr key={l.link} className="border-t border-stone-100">
-                  <td className="py-1.5">{s.links.find((x) => x.key === l.link)?.label ?? l.link}</td>
+                  <td className="py-1.5">{findLink(s, l.link)?.label ?? l.link}{l.link.startsWith('t-') ? <span className="text-xs text-stone-500"> (text link)</span> : null}</td>
                   <td className="text-right font-medium">{l.clicks}</td><td className="text-right">{l.people}</td><td className="text-right text-stone-400">{l.bots}</td>
                 </tr>))}
               </tbody>
@@ -383,19 +385,18 @@ function CopyCard({ s, set, dirty, busy, onSave, resendReady }: { s: VisitEmailS
   }, [s, variant, shop]);
 
   const setLink = (i: number, patch: Partial<VisitEmailLink>) => set('links', s.links.map((l, j) => (j === i ? { ...l, ...patch } : l)));
-  const area = (label: string, k: 'body_marketing' | 'body_plain', hint: string) => (
-    <label className="block text-sm">{label}
-      <textarea rows={6} value={s[k]} onChange={(e) => set(k, e.target.value)} className={input} />
-      <span className="mt-0.5 block text-xs text-stone-500">{hint}</span>
-    </label>
+  const area = (label: string, k: 'body_marketing' | 'body_plain' | 'signoff', hint: string, rows = 6) => (
+    <RichArea label={label} hint={hint} rows={rows} value={s[k]} onChange={(v) => set(k, v)} />
   );
 
   return (
     <section className={card}>
       <h2 className="font-semibold">Email copy</h2>
       <p className="mt-1 text-xs text-stone-500">
-        Placeholders: <code>{'{first_name}'}</code> <code>{'{shop}'}</code> (Soho / Fitzrovia) <code>{'{visit_day}'}</code> (e.g. Saturday 8 November).
+        Placeholders: <code>{'{first_name}'}</code> <code>{'{shop}'}</code> (Soho / Fitzrovia) <code>{'{visit_day}'}</code> (e.g. Wednesday)
+        {' '}<code>{'{visit_date}'}</code> (e.g. Wednesday 11 November).
         If a guest has no first name, “, {'{first_name}'}” is left out. Leave a blank line between paragraphs.
+        In the messages and sign-off, select words and press <b>Bold</b> or <b>Link</b>; it shows as <code>**bold**</code> and <code>[words](https://…)</code>.
       </p>
       <div className="mt-4 grid gap-5 lg:grid-cols-2">
         <div className="space-y-3">
@@ -404,7 +405,10 @@ function CopyCard({ s, set, dirty, busy, onSave, resendReady }: { s: VisitEmailS
           <label className="block text-sm">Heading<input value={s.heading} onChange={(e) => set('heading', e.target.value)} className={input} /></label>
           {area('Message: full version', 'body_marketing', 'Guests who ticked “news and offers”. Can mention the shop.')}
           {area('Message: plain version', 'body_plain', 'Guests who didn’t tick it (only used when sending to everyone). Thank-you and review only.')}
-          <label className="block text-sm">Sign-off<textarea rows={2} value={s.signoff} onChange={(e) => set('signoff', e.target.value)} className={input} /></label>
+          {area('Sign-off', 'signoff', '', 2)}
+          <label className="block text-sm">Closing line (script font, as on the website)
+            <input value={s.tagline} onChange={(e) => set('tagline', e.target.value)} className={input} placeholder="Leave blank for none" />
+          </label>
 
           <div>
             <h3 className="text-sm font-semibold">Buttons</h3>
@@ -463,7 +467,7 @@ function CopyCard({ s, set, dirty, busy, onSave, resendReady }: { s: VisitEmailS
               {preview.missingLinks.length > 0 && (
                 <p className="mt-1 text-xs text-amber-800">Left out (no address yet): {preview.missingLinks.join(', ')}</p>
               )}
-              <iframe title="Email preview" srcDoc={preview.html} sandbox="" className="mt-2 h-[640px] w-full rounded-lg border border-stone-200 bg-white" />
+              <EmailFrame html={preview.html} />
             </>
           )}
           <TestSend s={s} variant={variant} shop={shop} ready={resendReady} />
@@ -575,6 +579,184 @@ function Housekeeping({ onDone }: { onDone: () => void }) {
         <label className="block text-sm">Never email this address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={input} placeholder="guest@example.com" /></label>
         <button className={btnGhost} disabled={!email} onClick={() => act('suppress', undefined, { email }).then(() => setEmail(''))}>Add to do-not-email list</button>
       </div>
+    </section>
+  );
+}
+
+/* ── Text box with Bold / Link buttons ─────────────────────────────────── */
+function RichArea({ label, hint, rows, value, onChange }: { label: string; hint: string; rows: number; value: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  function wrap(kind: 'bold' | 'link') {
+    const el = ref.current;
+    if (!el) return;
+    const a = el.selectionStart, b = el.selectionEnd;
+    const sel = value.slice(a, b) || (kind === 'bold' ? 'bold words' : 'link words');
+    let piece: string;
+    if (kind === 'bold') piece = `**${sel}**`;
+    else {
+      const url = (window.prompt('Link address (must start with https://)', 'https://italianbearchocolate.com/') || '').trim();
+      if (!url) return;
+      if (!/^https:\/\/\S+$/.test(url)) { toast('Links must start with https://', 'error'); return; }
+      piece = `[${sel}](${url})`;
+    }
+    onChange(value.slice(0, a) + piece + value.slice(b));
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(a, a + piece.length); });
+  }
+  return (
+    <div className="text-sm">
+      <div className="flex items-end justify-between gap-2">
+        <span>{label}</span>
+        <span className="flex gap-1">
+          <button type="button" onClick={() => wrap('bold')} className="rounded border border-stone-300 px-2 py-0.5 text-xs font-bold hover:bg-stone-50">Bold</button>
+          <button type="button" onClick={() => wrap('link')} className="rounded border border-stone-300 px-2 py-0.5 text-xs underline hover:bg-stone-50">Link</button>
+        </span>
+      </div>
+      <textarea ref={ref} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} className={input} />
+      {hint && <span className="mt-0.5 block text-xs text-stone-500">{hint}</span>}
+    </div>
+  );
+}
+
+/* ── Email preview: whole email by default; drag the corner to resize ──── */
+function EmailFrame({ html }: { html: string }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const fit = useRef(true);
+  const measure = useCallback(() => {
+    const doc = ref.current?.contentDocument;
+    if (!doc || !box.current || !fit.current) return;
+    box.current.style.height = `${doc.documentElement.scrollHeight + 4}px`;
+  }, []);
+  useEffect(() => { measure(); }, [html, measure]);
+  return (
+    <div className="mt-2">
+      <div ref={box} style={{ height: 640 }} className="resize-y overflow-hidden rounded-lg border border-stone-200 bg-white"
+        onMouseDown={() => { fit.current = false; }}>
+        {/* allow-same-origin (no scripts) only so the frame's height can be measured */}
+        <iframe ref={ref} title="Email preview" srcDoc={html} sandbox="allow-same-origin" className="h-full w-full"
+          onLoad={() => { measure(); setTimeout(measure, 600); }} />
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-stone-500">
+        <span>Drag the bottom-right corner to resize.</span>
+        <button type="button" className="underline" onClick={() => { fit.current = true; measure(); }}>Show whole email</button>
+        <button type="button" className="underline" onClick={() => { fit.current = false; if (box.current) box.current.style.height = '480px'; }}>Shorter</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Check the data: real bookings and what the rules would do ─────────── */
+type SampleRow = {
+  shop: string; booking_id: string; date: string; time: string; party_size: number | null; status: string;
+  first_name: string; email: string | null; marketing: 'yes' | 'no' | null;
+  action: 'queue' | 'skip' | 'wait' | 'ignore' | 'handled'; reason?: string; variant?: 'marketing' | 'plain';
+  due_at?: string; source: 'auto' | 'backfill'; handled_state?: string;
+};
+const ymdLocal = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
+
+/** Why a first name would look odd in "Thank you for visiting, …" (null = fine). */
+function nameProblem(n: string): string | null {
+  const t = n.trim();
+  if (!t) return 'no first name';
+  if (/[\d@]/.test(t)) return 'looks wrong';
+  if (t.length > 1 && t === t.toUpperCase()) return 'all capitals';
+  if (t === t.toLowerCase()) return 'no capital';
+  if (/\s/.test(t)) return 'more than one word';
+  return null;
+}
+
+function DataCheck({ s }: { s: VisitEmailSettings }) {
+  const [from, setFrom] = useState(() => ymdLocal(new Date(Date.now() - 6 * 86400000)));
+  const [to, setTo] = useState(() => ymdLocal(new Date()));
+  const [rows, setRows] = useState<SampleRow[] | null>(null);
+  const [filter, setFilter] = useState<'all' | 'queue' | 'skip' | 'other'>('queue');
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<SampleRow | null>(null);
+  const [html, setHtml] = useState('');
+
+  async function loadRows() {
+    setBusy(true); setOpen(null);
+    try { setRows((await api('/api/visit-emails/sample', { from, to })).rows); } catch (e) { toast((e as Error).message, 'error'); }
+    setBusy(false);
+  }
+  async function show(r: SampleRow) {
+    setOpen(r); setHtml('');
+    const variant = r.variant ?? (r.marketing === 'yes' ? 'marketing' : 'plain');
+    try {
+      const e = await api('/api/visit-emails/preview', { settings: s, variant, shop: r.shop, first_name: r.first_name, visit_date: r.date });
+      setHtml(e.html);
+    } catch (e) { toast((e as Error).message, 'error'); }
+  }
+
+  const count = (a: SampleRow['action'][]) => rows?.filter((r) => a.includes(r.action)).length ?? 0;
+  const shown = (rows ?? []).filter((r) =>
+    filter === 'all' ? true : filter === 'queue' ? r.action === 'queue' : filter === 'skip' ? r.action === 'skip' : !['queue', 'skip'].includes(r.action));
+  const issues = (rows ?? []).filter((r) => r.action === 'queue' && nameProblem(r.first_name)).length;
+  const result = (r: SampleRow) =>
+    r.action === 'queue' ? `Email (${r.variant === 'plain' ? 'plain' : 'full'})`
+    : r.action === 'skip' ? `No – ${(SKIP_LABELS as Record<string, string>)[r.reason ?? ''] ?? r.reason}`
+    : r.action === 'wait' ? 'Not decided yet'
+    : r.action === 'ignore' ? 'Before go-live (backfill only)'
+    : `Already handled (${STATE_LABEL[r.handled_state ?? ''] ?? r.handled_state})`;
+  const tabs: Array<[typeof filter, string]> = [
+    ['queue', `Would email (${count(['queue'])})`], ['skip', `Not emailed (${count(['skip'])})`],
+    ['other', `Undecided / handled (${count(['wait', 'ignore', 'handled'])})`], ['all', `All (${rows?.length ?? 0})`],
+  ];
+
+  return (
+    <section className={card}>
+      <h2 className="font-semibold">Check the data</h2>
+      <p className="mt-1 text-xs text-stone-500">
+        Real bookings from TableAgent and what would happen to each, using the <b>saved</b> settings. Nothing is saved or sent.
+        Click a guest to see their email. Names flagged in amber would look odd in “Thank you for visiting, …”.
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="block text-sm">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={input} /></label>
+        <label className="block text-sm">to<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={input} /></label>
+        <button className={btnGhost} disabled={busy || !from || !to} onClick={loadRows}>{busy ? 'Loading…' : 'Show bookings'}</button>
+      </div>
+      {rows && (
+        <>
+          <div className="mt-3 flex flex-wrap gap-2 text-sm">
+            {tabs.map(([k, l]) => (
+              <button key={k} onClick={() => setFilter(k)} className={`rounded-full border px-3 py-1 ${filter === k ? 'border-cocoa-600 bg-cocoa-50 font-medium' : 'border-stone-300'}`}>{l}</button>
+            ))}
+            {issues > 0 && <span className="self-center text-amber-800">{issues} name{issues === 1 ? '' : 's'} to check</span>}
+          </div>
+          <div className="mt-2 max-h-[520px] overflow-auto rounded-lg border border-stone-100">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="sticky top-0 bg-white"><tr className="text-left text-xs text-stone-500">
+                <th className="px-2 py-1.5">Visit</th><th>Café</th><th>Party</th><th>TableAgent status</th><th>First name</th><th>Email</th><th>Marketing</th><th>Result</th><th>Would send</th>
+              </tr></thead>
+              <tbody>{shown.map((r) => {
+                const np = nameProblem(r.first_name);
+                return (
+                  <tr key={r.shop + r.booking_id} onClick={() => show(r)}
+                    className={`cursor-pointer border-t border-stone-100 hover:bg-cocoa-50 ${open?.booking_id === r.booking_id ? 'bg-cocoa-50' : ''}`}>
+                    <td className="whitespace-nowrap px-2 py-1.5">{r.date.slice(8)}/{r.date.slice(5, 7)} {r.time}</td>
+                    <td>{SHOPS.find((x) => x.key === r.shop)?.name ?? r.shop}</td>
+                    <td>{r.party_size ?? '–'}</td>
+                    <td>{r.status}</td>
+                    <td className={np ? 'text-amber-800' : ''} title={np ?? ''}>{r.first_name || '–'}{np ? ` (${np})` : ''}</td>
+                    <td className={r.email ? '' : 'text-amber-800'}>{r.email ?? 'none'}</td>
+                    <td>{r.marketing === 'yes' ? 'Yes' : r.marketing === 'no' ? 'No' : '–'}</td>
+                    <td>{result(r)}</td>
+                    <td className="whitespace-nowrap">{r.due_at ? when(r.due_at) : ''}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+          {open && (
+            <div className="mt-4">
+              <p className="text-sm"><b>{open.first_name || '(no name)'}</b> · {open.email ?? 'no email'} · {open.date} {open.time} ·
+                {' '}{SHOPS.find((x) => x.key === open.shop)?.name} · {result(open)}
+                <button className="ml-3 text-xs underline" onClick={() => setOpen(null)}>Close</button></p>
+              {html ? <EmailFrame html={html} /> : <p className="mt-2 text-sm text-stone-500">Loading email…</p>}
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }

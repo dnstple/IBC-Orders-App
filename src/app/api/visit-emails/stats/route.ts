@@ -8,11 +8,6 @@ import { resendConfigured } from '@/lib/visit-emails/sender';
 
 export const runtime = 'nodejs';
 
-const mask = (e: string | null) => {
-  if (!e) return '';
-  const [u, d] = e.split('@');
-  return `${u.slice(0, 1)}${'•'.repeat(Math.max(1, Math.min(u.length - 1, 6)))}@${d}`;
-};
 
 /** Admin only: everything the Visit emails dashboard shows. */
 export async function GET() {
@@ -93,6 +88,6 @@ export async function GET() {
       .sort((a, b) => b.clicks - a.clicks),
     daily: Object.entries(daily).map(([day, v]) => ({ day, ...v })),
     runs: runs ?? [],
-    recent: (recent ?? []).map((r) => ({ ...r, email: mask(r.email) })),
+    recent: recent ?? [], // admin only: full addresses, to check the data
   });
 }
