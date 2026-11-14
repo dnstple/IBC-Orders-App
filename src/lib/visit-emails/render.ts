@@ -139,9 +139,11 @@ export function findLink(s: VisitEmailSettings, key: string): VisitEmailLink | u
 
 /* ---------------- the email ---------------- */
 
-const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#3a2016', soft: '#6b5245', line: '#e2d4c8' };
+const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#4b2a1e', soft: '#6b5245', line: '#e2d4c8' };
+/** Dark-mode colours: deep chocolate background, #F1E7DF text, white brand lettering. */
+const D = { bg: '#2e1911', text: '#f1e7df', soft: '#cdbcae', line: '#5a3d31' };
 /** Bump when the brand-font images change, so inboxes fetch the new ones. */
-const IMG_V = 3;
+const IMG_V = 4;
 const F = {
   wordmark: "'League Gothic','Oswald','Arial Narrow',Arial,sans-serif",
   display: "'Oswald','Arial Narrow',Arial,sans-serif",
@@ -179,20 +181,47 @@ export function renderEmail(s: VisitEmailSettings, input: RenderInput): Rendered
   const p = (html: string, extra = '') =>
     `<p style="margin:0 0 16px;font-family:${F.body};font-size:16px;line-height:1.6;color:${C.ink}${extra}">${html}</p>`;
 
-  const wordmarkImg = (on: 'dark' | 'light', width: number) =>
-    `<img src="${esc(base)}/r/img/wordmark?on=${on}&amp;v=${IMG_V}" width="${width}" height="${Math.round(width * 112 / 720)}" alt="Italian Bear Chocolate" style="display:block;border:0;outline:none;max-width:100%;height:auto;color:${on === 'dark' ? C.milk : C.dark};font-family:${F.wordmark};font-size:${on === 'dark' ? 28 : 22}px;letter-spacing:.06em;text-transform:uppercase">`;
-  const taglineImg = (width: number, align: 'center' | 'left') =>
-    `<img src="${esc(base)}/r/img/tagline?t=${encodeURIComponent(tagline)}${align === 'left' ? '&amp;align=left' : ''}&amp;v=${IMG_V}" width="${width}" height="${Math.round(width * 132 / 720)}" alt="${esc(tagline)}" style="display:block;${align === 'center' ? 'margin:0 auto;' : ''}border:0;outline:none;max-width:100%;height:auto;color:${C.dark};font-family:${F.script};font-size:30px">`;
-  const footer = (pad: string) => `<tr><td style="padding:${pad};border-top:1px solid ${C.line};font-family:${F.body};font-size:12px;line-height:1.5;color:${C.soft}">
+  const imgStyle = (extra: string) => `border:0;outline:none;max-width:100%;height:auto;${extra}`;
+  /** One image for normal inboxes, plus a white one that only dark-mode inboxes show. */
+  const pair = (light: string, dark: string) =>
+    `<div class="lm">${light}</div><div class="dm" style="display:none;mso-hide:all;max-height:0;overflow:hidden">${dark}</div>`;
+  const wordmarkImg = (on: 'dark' | 'light', width: number) => {
+    const img = (v: string, colour: string) =>
+      `<img src="${esc(base)}/r/img/wordmark?on=${v}&amp;v=${IMG_V}" width="${width}" height="${Math.round(width * 112 / 720)}" alt="Italian Bear Chocolate" style="display:block;${imgStyle(`color:${colour};font-family:${F.wordmark};font-size:${on === 'dark' ? 28 : 22}px;letter-spacing:.06em;text-transform:uppercase`)}">`;
+    return on === 'dark' ? img('dark', C.milk) : pair(img('light', C.dark), img('white', '#ffffff'));
+  };
+  const taglineImg = (width: number, align: 'center' | 'left') => {
+    const img = (tone: string, colour: string) =>
+      `<img src="${esc(base)}/r/img/tagline?t=${encodeURIComponent(tagline)}${align === 'left' ? '&amp;align=left' : ''}${tone ? `&amp;tone=${tone}` : ''}&amp;v=${IMG_V}" width="${width}" height="${Math.round(width * 132 / 720)}" alt="${esc(tagline)}" style="display:block;${align === 'center' ? 'margin:0 auto;' : ''}${imgStyle(`color:${colour};font-family:${F.script};font-size:30px`)}">`;
+    return pair(img('', C.dark), img('white', '#ffffff'));
+  };
+  const footer = (pad: string) => `<tr><td class="ibc-f ibc-line" style="padding:${pad};border-top:1px solid ${C.line};font-family:${F.body};font-size:12px;line-height:1.5;color:${C.soft}">
 Italian Bear Chocolate ${esc(shopInfo?.name ?? '')}${shopInfo ? ', ' + esc(shopInfo.address) : ''}<br>
 You're getting this one-off email because you visited us recently.${optOutUrl ? ` <a href="${esc(optOutUrl)}" style="color:${C.soft}">Don't email me again</a>` : ''}
 </td></tr>`;
   const head = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light">
+<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
 <title>${esc(subject)}</title>
 <link href="${FONTS_URL}" rel="stylesheet">
-<style>strong{font-weight:600}</style>
+<style>
+strong{font-weight:600}
+@media (prefers-color-scheme: dark){
+  .ibc-bg{background:${D.bg}!important}
+  .ibc-t,.ibc-t p,.ibc-t a{color:${D.text}!important}
+  .ibc-t h1{color:#ffffff!important}
+  .ibc-t a.ibc-btn{background:${D.text}!important;color:${C.dark}!important;border-color:${D.text}!important}
+  .ibc-f,.ibc-f a{color:${D.soft}!important}
+  .ibc-line{border-color:${D.line}!important}
+  .lm{display:none!important}
+  .dm{display:block!important;max-height:none!important;overflow:visible!important}
+}
+[data-ogsb] .ibc-bg{background:${D.bg}!important}
+[data-ogsc] .ibc-t,[data-ogsc] .ibc-t p,[data-ogsc] .ibc-t a{color:${D.text}!important}
+[data-ogsc] .ibc-t h1{color:#ffffff!important}
+[data-ogsc] .lm{display:none!important}
+[data-ogsc] .dm{display:block!important;max-height:none!important;overflow:visible!important}
+</style>
 </head>`;
   const hidden = `<span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(preheader)}</span>`;
 
@@ -201,15 +230,15 @@ You're getting this one-off email because you visited us recently.${optOutUrl ? 
     // A short letter: small wordmark, greeting, paragraphs, one simple button, sign-off.
     const buttons = links
       .map((l) =>
-        `<tr><td style="padding:2px 0 12px"><a href="${esc(l.trackedUrl)}" style="display:inline-block;background:${C.dark};color:${C.milk};border-radius:2px;padding:11px 20px;font-family:${F.body};font-weight:600;font-size:15px;text-decoration:none">${esc(l.label)}</a></td></tr>`)
+        `<tr><td style="padding:2px 0 12px"><a class="ibc-btn" href="${esc(l.trackedUrl)}" style="display:inline-block;background:${C.dark};color:${C.milk};border-radius:2px;padding:11px 20px;font-family:${F.body};font-weight:600;font-size:15px;text-decoration:none">${esc(l.label)}</a></td></tr>`)
       .join('');
     html = `${head}
-<body style="margin:0;padding:0;background:${C.milk}">
+<body class="ibc-bg" style="margin:0;padding:0;background:${C.milk}">
 ${hidden}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.milk}"><tr><td align="center" style="padding:30px 18px">
+<table class="ibc-bg" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.milk}"><tr><td class="ibc-bg" align="center" style="padding:30px 18px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;color:${C.ink}">
 <tr><td style="padding:0 0 26px">${wordmarkImg('light', 220)}</td></tr>
-<tr><td>
+<tr><td class="ibc-t">
 ${heading ? p(esc(heading), ';font-size:17px;font-weight:600') : ''}
 ${paragraphs.map((x) => p(markupToHtml(x, inlineHtml))).join('\n')}
 ${buttons ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 6px">${buttons}</table>` : ''}
@@ -222,15 +251,15 @@ ${footer('16px 0 0')}
   } else {
     const buttons = links
       .map((l, i) =>
-        `<tr><td style="padding:${i ? 10 : 4}px 0 0"><a href="${esc(l.trackedUrl)}" style="display:inline-block;background:${i === 0 ? C.dark : '#ffffff'};color:${i === 0 ? C.milk : C.dark};border:1px solid ${C.dark};border-radius:2px;padding:12px 22px;font-family:${F.display};font-weight:500;font-size:14px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none">${esc(l.label)}</a></td></tr>`)
+        `<tr><td style="padding:${i ? 10 : 4}px 0 0"><a class="ibc-btn" href="${esc(l.trackedUrl)}" style="display:inline-block;background:${i === 0 ? C.dark : '#ffffff'};color:${i === 0 ? C.milk : C.dark};border:1px solid ${C.dark};border-radius:2px;padding:12px 22px;font-family:${F.display};font-weight:500;font-size:14px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none">${esc(l.label)}</a></td></tr>`)
       .join('');
     html = `${head}
-<body style="margin:0;padding:0;background:${C.cream}">
+<body class="ibc-bg" style="margin:0;padding:0;background:${C.cream}">
 ${hidden}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream}"><tr><td align="center" style="padding:28px 14px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:${C.milk};border-radius:2px;color:${C.ink}">
+<table class="ibc-bg" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream}"><tr><td class="ibc-bg" align="center" style="padding:28px 14px">
+<table class="ibc-bg" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:${C.milk};border-radius:2px;color:${C.ink}">
 <tr><td align="center" style="background:${C.dark};padding:18px 28px"><div style="width:360px;max-width:100%;margin:0 auto">${wordmarkImg('dark', 360)}</div></td></tr>
-<tr><td style="padding:30px 28px 8px">
+<tr><td class="ibc-t" style="padding:30px 28px 8px">
 <h1 style="margin:0 0 18px;font-family:${F.display};font-size:26px;font-weight:400;line-height:1.2;letter-spacing:.01em;color:${C.dark}">${esc(heading)}</h1>
 ${paragraphs.map((x) => p(markupToHtml(x, inlineHtml))).join('\n')}
 ${buttons ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 8px">${buttons}</table>` : ''}

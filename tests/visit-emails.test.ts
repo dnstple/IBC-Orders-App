@@ -308,3 +308,15 @@ describe('approve each one', () => {
     await expect(sendEmail(S({ mode: 'manual' }), 'g@example.com', email(), 'x')).rejects.toBeInstanceOf(LiveSendingLocked);
   });
 });
+
+describe('dark mode', () => {
+  it('declares light+dark, swaps to white brand images and cream text in dark mode', () => {
+    const e = renderEmail(S(), { token: 't', appUrl: 'https://links.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-11', variant: 'marketing' });
+    expect(e.html).toContain('content="light dark"');
+    expect(e.html).toContain('prefers-color-scheme: dark');
+    expect(e.html).toContain('wordmark?on=white');
+    expect(e.html).toContain('tone=white');
+    expect(e.html).toMatch(/\.ibc-t,\.ibc-t p,\.ibc-t a\{color:#f1e7df!important\}/);
+    expect(e.html).toContain('color:#4b2a1e'); // normal-mode text colour
+  });
+});
