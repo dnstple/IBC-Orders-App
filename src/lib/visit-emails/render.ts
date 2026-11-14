@@ -141,7 +141,7 @@ export function findLink(s: VisitEmailSettings, key: string): VisitEmailLink | u
 
 const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#3a2016', soft: '#6b5245', line: '#e2d4c8' };
 /** Bump when the brand-font images change, so inboxes fetch the new ones. */
-const IMG_V = 2;
+const IMG_V = 3;
 const F = {
   wordmark: "'League Gothic','Oswald','Arial Narrow',Arial,sans-serif",
   display: "'Oswald','Arial Narrow',Arial,sans-serif",
