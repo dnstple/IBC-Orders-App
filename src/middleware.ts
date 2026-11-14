@@ -11,6 +11,13 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
  * requests for CSS/JS get redirected to /login and pages render unstyled.
  */
 export async function middleware(request: NextRequest) {
+  // links.italianbearchocolate.com only serves the email links (/r/...).
+  // Anything else on that address goes to the shop, never the staff app.
+  const host = (request.headers.get('host') ?? '').toLowerCase();
+  if (host.startsWith('links.') && !request.nextUrl.pathname.startsWith('/r/')) {
+    return NextResponse.redirect('https://italianbearchocolate.com/', 302);
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

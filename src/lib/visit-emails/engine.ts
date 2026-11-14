@@ -22,8 +22,14 @@ export async function loadSettings(): Promise<VisitEmailSettings> {
   return normaliseSettings(data?.value);
 }
 
+/**
+ * Base address for the links inside emails (tracked buttons, text links,
+ * opt-out). Set VISIT_EMAILS_LINK_URL=https://links.italianbearchocolate.com
+ * once that domain points at this app, so links match the sending domain
+ * (spam filters dislike links on a different domain from the sender).
+ */
 export function appUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://ibc-orders.vercel.app').replace(/\/+$/, '');
+  return (process.env.VISIT_EMAILS_LINK_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://ibc-orders.vercel.app').replace(/\/+$/, '');
 }
 
 async function suppressedSet(emails: string[]): Promise<Set<string>> {
