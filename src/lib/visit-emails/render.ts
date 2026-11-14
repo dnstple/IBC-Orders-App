@@ -8,9 +8,10 @@
  *   **bold words**            -> bold
  *   [link words](https://...) -> a link (tracked like the buttons, key "t-<hash>")
  *
- * Fonts match the website (Oswald headings, Cabin body, Cookie script) and
- * fall back to close system fonts where an inbox doesn't load web fonts
- * (Gmail, Outlook on Windows).
+ * Fonts match the website (Oswald headings, Cabin body). The name (League
+ * Gothic) and the closing line (Cookie) are images drawn in the real fonts by
+ * /r/img/..., because Gmail and Outlook ignore web fonts; their alt text is
+ * styled to look close if images are blocked.
  */
 import { SHOPS, shopName, type Shop, type VisitEmailLink, type VisitEmailSettings } from './settings';
 
@@ -139,12 +140,15 @@ export function findLink(s: VisitEmailSettings, key: string): VisitEmailLink | u
 /* ---------------- the email ---------------- */
 
 const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#3a2016', soft: '#6b5245', line: '#e2d4c8' };
+/** Bump when the brand-font images change, so inboxes fetch the new ones. */
+const IMG_V = 1;
 const F = {
+  wordmark: "'League Gothic','Oswald','Arial Narrow',Arial,sans-serif",
   display: "'Oswald','Arial Narrow',Arial,sans-serif",
   body: "'Cabin','Gill Sans','Gill Sans MT','Segoe UI',Arial,sans-serif",
   script: "'Cookie','Brush Script MT','Segoe Script',cursive",
 };
-const FONTS_URL = 'https://fonts.googleapis.com/css2?family=Cabin:wght@400;600&family=Cookie&family=Oswald:wght@400;500&display=swap';
+const FONTS_URL = 'https://fonts.googleapis.com/css2?family=Cabin:wght@400;600&family=Cookie&family=League+Gothic&family=Oswald:wght@400;500&display=swap';
 
 export function renderEmail(s: VisitEmailSettings, input: RenderInput): RenderedEmail {
   const vars = { firstName: input.firstName, shop: input.shop, visitDate: input.visitDate };
@@ -191,13 +195,13 @@ export function renderEmail(s: VisitEmailSettings, input: RenderInput): Rendered
 <span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(preheader)}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream}"><tr><td align="center" style="padding:28px 14px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:${C.milk};border-radius:2px;color:${C.ink}">
-<tr><td style="background:${C.dark};padding:20px 28px;color:${C.milk};font-family:${F.display};font-size:18px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;text-align:center">Italian Bear Chocolate</td></tr>
+<tr><td align="center" style="background:${C.dark};padding:18px 28px"><img src="${esc(base)}/r/img/wordmark?v=${IMG_V}" width="360" height="56" alt="Italian Bear Chocolate" style="display:block;margin:0 auto;border:0;outline:none;max-width:100%;height:auto;color:${C.milk};font-family:${F.wordmark};font-size:28px;letter-spacing:.06em;text-transform:uppercase;text-align:center"></td></tr>
 <tr><td style="padding:30px 28px 8px">
 <h1 style="margin:0 0 18px;font-family:${F.display};font-size:26px;font-weight:400;line-height:1.2;letter-spacing:.01em;color:${C.dark}">${esc(heading)}</h1>
 ${paragraphs.map((x) => p(markupToHtml(x, inlineHtml))).join('\n')}
 ${buttons ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 8px">${buttons}</table>` : ''}
 ${p(markupToHtml(signoff, inlineHtml), ';margin-top:22px')}
-${tagline ? `<p style="margin:10px 0 6px;font-family:${F.script};font-size:34px;line-height:1.1;color:${C.dark};text-align:center">${esc(tagline)}</p>` : ''}
+${tagline ? `<p style="margin:8px 0 4px;text-align:center"><img src="${esc(base)}/r/img/tagline?t=${encodeURIComponent(tagline)}&amp;v=${IMG_V}" width="360" height="66" alt="${esc(tagline)}" style="display:block;margin:0 auto;border:0;outline:none;max-width:100%;height:auto;color:${C.dark};font-family:${F.script};font-size:34px;text-align:center"></p>` : ''}
 </td></tr>
 <tr><td style="padding:16px 28px 24px;border-top:1px solid ${C.line};font-family:${F.body};font-size:12px;line-height:1.5;color:${C.soft}">
 Italian Bear Chocolate ${esc(shopInfo?.name ?? '')}${shopInfo ? ', ' + esc(shopInfo.address) : ''}<br>

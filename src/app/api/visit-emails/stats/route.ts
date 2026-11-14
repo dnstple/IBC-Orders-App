@@ -73,6 +73,26 @@ export async function GET() {
   const sent = byState.sent ?? 0;
   const optOuts = (sup ?? []).filter((s) => s.reason === 'opt_out').length;
 
+  // Funnel from Resend's webhook events (needs migration 0007; null until then).
+  let funnel: null | Record<string, number> = null;
+  const ev = await db.from('visit_emails')
+    .select('id, delivered_at, opened_at, bounced_at, bounce_type, complained_at, delayed_at')
+    .eq('state', 'sent').limit(50000);
+  if (!ev.error) {
+    const r = ev.data ?? [];
+    const delivered = r.filter((x) => x.delivered_at).length;
+    funnel = {
+      sent,
+      delivered,
+      opened: r.filter((x) => x.opened_at).length,
+      clicked: r.filter((x) => clickers.has(x.id)).length,
+      bounced: r.filter((x) => x.bounced_at && !/transient/i.test(x.bounce_type ?? '')).length,
+      delayed: r.filter((x) => x.delayed_at && !x.delivered_at && !x.bounced_at).length,
+      complained: r.filter((x) => x.complained_at).length,
+      optedOut: optOuts,
+    };
+  }
+
   return NextResponse.json({
     today,
     server: { feedConfigured: feedConfigured(), liveAllowed: liveSendingAllowed(), resendConfigured: resendConfigured(), appUrl: process.env.NEXT_PUBLIC_APP_URL ?? '' },
@@ -83,6 +103,7 @@ export async function GET() {
       clickRate: sent ? clickers.size / sent : null,
       optOuts, suppressed: sup?.length ?? 0,
     },
+    funnel, webhookConfigured: Boolean(process.env.RESEND_WEBHOOK_SECRET),
     variants, sources, shops, skipReasons,
     links: [...linkMap.values()].map((l) => ({ link: l.link, clicks: l.clicks, people: l.people.size, bots: l.bots }))
       .sort((a, b) => b.clicks - a.clicks),

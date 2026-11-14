@@ -62,3 +62,20 @@ email leaves), **Live** (sends). Live is locked twice: the dashboard switch and
 
 Email + first name only on rows that are queued or sent; skipped bookings keep
 booking id, date, café and reason. Opt-outs go to `visit_email_suppressions`.
+
+## Brand fonts
+
+The name (League Gothic) and the closing line (Cookie) are PNG images drawn by
+`/r/img/wordmark` and `/r/img/tagline?t=…` (fonts bundled next to that route,
+SIL Open Font License), because Gmail and Outlook ignore web fonts. Change
+`IMG_V` in `render.ts` if the images change, so inboxes fetch the new ones.
+
+## Funnel (delivered / opened / bounced / spam)
+
+1. Run `supabase/migrations/0007_visit_email_events.sql`.
+2. Resend → Webhooks → Add endpoint `https://ibc-orders.vercel.app/api/webhooks/resend`,
+   events: email.delivered, email.delivery_delayed, email.bounced, email.complained, email.opened.
+3. Copy its signing secret (`whsec_…`) into Vercel as `RESEND_WEBHOOK_SECRET`, redeploy.
+4. Opens: Resend → Domains → the domain → turn on open tracking.
+
+Permanent bounces and spam complaints are added to the do-not-email list automatically.

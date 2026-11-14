@@ -213,3 +213,33 @@ describe('copy markup, fonts and tagline', () => {
     expect(normaliseSettings({ links: [{ key: 't-abc', label: 'x', url: 'https://a.b' }] }).links).toEqual([]);
   });
 });
+
+import { createHmac } from 'crypto';
+import { verifySvix } from '@/lib/visit-emails/webhook';
+
+describe('Resend webhook signature', () => {
+  const secret = 'whsec_' + Buffer.from('test-secret-key-123').toString('base64');
+  const sign = (id: string, ts: string, body: string) =>
+    'v1,' + createHmac('sha256', Buffer.from('test-secret-key-123')).update(`${id}.${ts}.${body}`).digest('base64');
+  const now = 1_800_000_000;
+
+  it('accepts a correct signature and rejects tampering, wrong secret and old timestamps', () => {
+    const body = '{"type":"email.delivered","data":{"email_id":"abc"}}';
+    const sig = sign('msg_1', String(now), body);
+    expect(verifySvix(secret, 'msg_1', String(now), body, `v1,bogus ${sig}`, now)).toBe(true);
+    expect(verifySvix(secret, 'msg_1', String(now), body.replace('abc', 'xyz'), sig, now)).toBe(false);
+    expect(verifySvix('whsec_' + Buffer.from('other').toString('base64'), 'msg_1', String(now), body, sig, now)).toBe(false);
+    expect(verifySvix(secret, 'msg_1', String(now - 600), body, sign('msg_1', String(now - 600), body), now)).toBe(false);
+    expect(verifySvix('', 'msg_1', String(now), body, sig, now)).toBe(false);
+  });
+});
+
+describe('brand-font images', () => {
+  it('header and closing line are images with readable alt text', () => {
+    const e = renderEmail(S(), { token: 't', appUrl: 'https://links.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-11', variant: 'plain' });
+    expect(e.html).toContain('src="https://links.test/r/img/wordmark?v=');
+    expect(e.html).toContain('alt="Italian Bear Chocolate"');
+    expect(e.html).toContain('src="https://links.test/r/img/tagline?t=All%20you%20need%20is%20chocolate');
+    expect(e.html).toContain('alt="All you need is chocolate"');
+  });
+});

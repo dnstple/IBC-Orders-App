@@ -154,6 +154,8 @@ function Overview({ s, stats }: { s: VisitEmailSettings; stats: Stats }) {
         From backfill: {stats.sources.backfill}.
       </p>
 
+      <Funnel stats={stats} s={s} />
+
       <div className="mt-5 grid gap-5 sm:grid-cols-2">
         <div>
           <h3 className="text-sm font-semibold">Link clicks</h3>
@@ -758,5 +760,43 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
         </>
       )}
     </section>
+  );
+}
+
+/* ── Funnel: sent → delivered → opened → clicked (real sends only) ─────── */
+function Funnel({ stats, s }: { stats: Stats; s: VisitEmailSettings }) {
+  const f = stats.funnel as null | Record<string, number>;
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+  if (!f) {
+    return <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Delivery and open tracking needs the database update <code>0007_visit_email_events.sql</code> running in Supabase.</p>;
+  }
+  const steps: Array<[string, number, string]> = [
+    ['Sent', f.sent, ''],
+    ['Delivered', f.delivered, `${pct(f.delivered, f.sent)} of sent`],
+    ['Opened', f.opened, `${pct(f.opened, f.delivered)} of delivered`],
+    ['Clicked a link', f.clicked, `${pct(f.clicked, f.delivered)} of delivered · ${pct(f.clicked, f.opened)} of opened`],
+  ];
+  return (
+    <div className="mt-5">
+      <h3 className="text-sm font-semibold">Funnel (real emails only)</h3>
+      <ol className="mt-2 grid gap-2 sm:grid-cols-4">
+        {steps.map(([label, n, sub], i) => (
+          <li key={label} className="rounded-lg border border-stone-200 p-3">
+            <div className="text-xs text-stone-500">{i + 1}. {label}</div>
+            <div className="text-xl font-semibold text-cocoa-900">{n}</div>
+            {sub && <div className="text-xs text-stone-500">{sub}</div>}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-xs text-stone-600">
+        Problems: {f.bounced} bounced · {f.delayed} still delayed · {f.complained} marked as spam · {f.optedOut} opted out
+        {f.sent ? ` (spam rate ${pct(f.complained, f.delivered)}; keep under 0.1%)` : ''}.
+      </p>
+      <p className="mt-1 text-xs text-stone-500">
+        {stats.webhookConfigured ? '' : 'Delivered/opened/bounced need the Resend webhook set up (RESEND_WEBHOOK_SECRET). '}
+        Opens are approximate: Apple Mail opens every email automatically and some people block images.
+        Visits and sales from the email: Shopify → Analytics → Reports, filter by UTM campaign <code>{s.utm_campaign}</code>.
+      </p>
+    </div>
   );
 }
