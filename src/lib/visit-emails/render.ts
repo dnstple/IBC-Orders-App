@@ -141,7 +141,7 @@ export function findLink(s: VisitEmailSettings, key: string): VisitEmailLink | u
 
 const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#4b2a1e', soft: '#6b5245', line: '#e2d4c8' };
 /** Dark-mode colours: deep chocolate background, #F1E7DF text, white brand lettering. */
-const D = { bg: '#2e1911', text: '#f1e7df', soft: '#cdbcae', line: '#5a3d31' };
+const D = { bg: '#2e1911', text: '#f1e7df', button: '#fbf2d7', soft: '#cdbcae', line: '#5a3d31' };
 /** Bump when the brand-font images change, so inboxes fetch the new ones. */
 const IMG_V = 4;
 const F = {
@@ -210,7 +210,7 @@ strong{font-weight:600}
   .ibc-bg{background:${D.bg}!important}
   .ibc-t,.ibc-t p,.ibc-t a{color:${D.text}!important}
   .ibc-t h1{color:#ffffff!important}
-  .ibc-t a.ibc-btn{background:${D.text}!important;color:${C.dark}!important;border-color:${D.text}!important}
+  .ibc-t a.ibc-btn{background:${D.button}!important;color:${C.dark}!important;border-color:${D.button}!important}
   .ibc-f,.ibc-f a{color:${D.soft}!important}
   .ibc-line{border-color:${D.line}!important}
   .lm{display:none!important}
