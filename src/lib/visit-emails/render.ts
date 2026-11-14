@@ -56,8 +56,28 @@ export function niceDay(ymd: string): string {
  * Fills {first_name} {shop} {visit_day} (Wednesday) {visit_date} (Wednesday 11 November).
  * With no first name, ", {first_name}" disappears cleanly.
  */
+/**
+ * Tidies a first name from TableAgent before it goes into an email:
+ * at most two words, each starting with a capital ("MARY jane" -> "Mary Jane",
+ * "anne-marie" -> "Anne-Marie", "o'brien" -> "O'Brien"). Mixed-case words
+ * like "DeShawn" keep their capitals. Anything with digits or an @ (an email
+ * or phone typed into the name box) is dropped, so the greeting has no name.
+ */
+export function cleanFirstName(raw: string | null | undefined): string {
+  const t = String(raw ?? '').replace(/[\u0000-\u001f]/g, ' ').trim();
+  if (!t || /[\d@]/.test(t)) return '';
+  const words = t.replace(/^[^\p{L}]+|[^\p{L}.]+$/gu, '').split(/\s+/).filter(Boolean).slice(0, 2);
+  const fix = (w: string) => {
+    const mixed = w !== w.toLowerCase() && w !== w.toUpperCase();
+    const base = mixed ? w : w.toLowerCase();
+    // Capital at the start and after a hyphen or apostrophe.
+    return base.replace(/(^|[-'’])(\p{L})/gu, (_m, sep, ch) => sep + ch.toUpperCase());
+  };
+  return words.map(fix).join(' ');
+}
+
 export function fill(template: string, vars: { firstName: string; shop: string; visitDate: string }): string {
-  const name = vars.firstName.trim();
+  const name = cleanFirstName(vars.firstName);
   let t = template;
   if (!name) t = t.replace(/[,\s]*\{first_name\}/g, '');
   return t
@@ -141,7 +161,7 @@ export function findLink(s: VisitEmailSettings, key: string): VisitEmailLink | u
 
 const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#4b2a1e', soft: '#6b5245', line: '#e2d4c8' };
 /** Dark-mode colours: deep chocolate background, #F1E7DF text, white brand lettering. */
-const D = { bg: '#2e1911', text: '#f1e7df', button: '#fbf2d7', soft: '#cdbcae', line: '#5a3d31' };
+const D = { bg: '#2e1911', text: '#f1e7df', soft: '#cdbcae', line: '#5a3d31' };
 /** Bump when the brand-font images change, so inboxes fetch the new ones. */
 const IMG_V = 4;
 const F = {
@@ -210,7 +230,7 @@ strong{font-weight:600}
   .ibc-bg{background:${D.bg}!important}
   .ibc-t,.ibc-t p,.ibc-t a{color:${D.text}!important}
   .ibc-t h1{color:#ffffff!important}
-  .ibc-t a.ibc-btn{background:${D.button}!important;color:${C.dark}!important;border-color:${D.button}!important}
+  .ibc-t a.ibc-btn{background:${C.dark}!important;color:#ffffff!important;border-color:${C.dark}!important}
   .ibc-f,.ibc-f a{color:${D.soft}!important}
   .ibc-line{border-color:${D.line}!important}
   .lm{display:none!important}

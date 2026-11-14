@@ -320,3 +320,32 @@ describe('dark mode', () => {
     expect(e.html).toContain('color:#4b2a1e'); // normal-mode text colour
   });
 });
+
+import { cleanFirstName } from '@/lib/visit-emails/render';
+
+describe('first-name cleaning', () => {
+  it.each([
+    ['DANIEL', 'Daniel'],
+    ['daniel', 'Daniel'],
+    ['  daniel  ', 'Daniel'],
+    ['mary jane', 'Mary Jane'],
+    ['MARY   JANE', 'Mary Jane'],
+    ['mary jane smith', 'Mary Jane'],
+    ['anne-marie', 'Anne-Marie'],
+    ["o'brien", "O'Brien"],
+    ['DeShawn', 'DeShawn'],
+    ['élodie', 'Élodie'],
+    ['daniel@gmail.com', ''],
+    ['07700 900123', ''],
+    ['', ''],
+    [null, ''],
+    ['-sofia,', 'Sofia'],
+  ])('%s -> %s', (raw, want) => expect(cleanFirstName(raw as string | null)).toBe(want));
+
+  it('is applied in the email greeting', () => {
+    const e = renderEmail(S(), { token: 't', appUrl: 'https://a.test', shop: 'soho', firstName: 'MARY jane', visitDate: '2026-11-11', variant: 'marketing' });
+    expect(e.html).toContain('Thank you for visiting, Mary Jane');
+    const none = renderEmail(S(), { token: 't', appUrl: 'https://a.test', shop: 'soho', firstName: 'x@y.com', visitDate: '2026-11-11', variant: 'marketing' });
+    expect(none.html).toContain('Thank you for visiting</p>');
+  });
+});

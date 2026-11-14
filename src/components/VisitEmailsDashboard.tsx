@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/Toaster';
 import { SKIP_LABELS } from '@/lib/visit-emails/eligibility';
-import { findLink } from '@/lib/visit-emails/render';
+import { cleanFirstName, findLink } from '@/lib/visit-emails/render';
 import { SHOPS, type Shop, type VisitEmailLink, type VisitEmailSettings } from '@/lib/visit-emails/settings';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -712,14 +712,23 @@ type SampleRow = {
 const ymdLocal = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
 
 /** Why a first name would look odd in "Thank you for visiting, …" (null = fine). */
+/** What the cleaner can't fix (capitals and spacing are fixed automatically). null = fine. */
 function nameProblem(n: string): string | null {
   const t = n.trim();
   if (!t) return 'no first name';
-  if (/[\d@]/.test(t)) return 'looks wrong';
-  if (t.length > 1 && t === t.toUpperCase()) return 'all capitals';
-  if (t === t.toLowerCase()) return 'no capital';
-  if (/\s/.test(t)) return 'more than one word';
+  if (/[\d@]/.test(t)) return 'looks wrong, left out';
+  const clean = cleanFirstName(t);
+  if (!clean) return 'left out';
+  if (clean.replace(/[^\p{L}]/gu, '').length === 1) return 'initial only';
+  if (t.split(/\s+/).length > 2) return 'more than two words, trimmed';
   return null;
+}
+
+/** The name as it will appear in the email, plus the original when cleaning changed it. */
+function NameCell({ raw }: { raw: string | null }) {
+  const clean = cleanFirstName(raw);
+  const changed = (raw ?? '').trim() !== clean;
+  return <>{clean || '–'}{changed && raw ? <span className="text-xs text-stone-400"> (was “{raw}”)</span> : null}</>;
 }
 
 function DataCheck({ s }: { s: VisitEmailSettings }) {
@@ -750,11 +759,11 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
   }
   function downloadCsv() {
     if (!rows) return;
-    const head = ['visit_date', 'weekday', 'time', 'cafe', 'party_size', 'tableagent_status', 'first_name', 'name_check', 'email', 'marketing', 'result', 'version', 'would_send'];
+    const head = ['visit_date', 'weekday', 'time', 'cafe', 'party_size', 'tableagent_status', 'first_name_original', 'first_name_in_email', 'name_check', 'email', 'marketing', 'result', 'version', 'would_send'];
     const cell = (v: unknown) => { const t = String(v ?? ''); const safe = /^[=+\-@]/.test(t) ? `'${t}` : t; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
     const lines = [head.join(',')].concat(rows.map((r) => [
       r.date, new Date(`${r.date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' }), r.time,
-      SHOPS.find((x) => x.key === r.shop)?.name ?? r.shop, r.party_size, r.status, r.first_name, nameProblem(r.first_name) ?? 'ok',
+      SHOPS.find((x) => x.key === r.shop)?.name ?? r.shop, r.party_size, r.status, r.first_name, cleanFirstName(r.first_name), nameProblem(r.first_name) ?? 'ok',
       r.email ?? '', r.marketing ?? 'unanswered', result(r), r.variant ?? '', r.due_at ? when(r.due_at) : '',
     ].map(cell).join(',')));
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -791,7 +800,7 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
       <h2 className="font-semibold">Check the data</h2>
       <p className="mt-1 text-xs text-stone-500">
         Real bookings from TableAgent and what would happen to each, using the <b>saved</b> settings. Nothing is saved or sent.
-        Click a guest to see their email. Names flagged in amber would look odd in “Thank you for visiting, …”.
+        Click a guest to see their email. Names are tidied automatically (two words at most, capital letters fixed); the original shows in grey when it changed. Amber = something cleaning can’t fix.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="block text-sm">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={input} /></label>
@@ -827,7 +836,7 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
                     <td>{SHOPS.find((x) => x.key === r.shop)?.name ?? r.shop}</td>
                     <td>{r.party_size ?? '–'}</td>
                     <td>{r.status}</td>
-                    <td className={np ? 'text-amber-800' : ''} title={np ?? ''}>{r.first_name || '–'}{np ? ` (${np})` : ''}</td>
+                    <td className={np ? 'text-amber-800' : ''} title={np ?? ''}><NameCell raw={r.first_name} />{np ? <span className="text-xs"> ({np})</span> : null}</td>
                     <td className={r.email ? '' : 'text-amber-800'}>{r.email ?? 'none'}</td>
                     <td>{r.marketing === 'yes' ? 'Yes' : r.marketing === 'no' ? 'No' : '–'}</td>
                     <td>{result(r)}</td>
@@ -839,7 +848,7 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
           </div>
           {open && (
             <div className="mt-4">
-              <p className="text-sm"><b>{open.first_name || '(no name)'}</b> · {open.email ?? 'no email'} · {open.date} {open.time} ·
+              <p className="text-sm"><b>{cleanFirstName(open.first_name) || '(no name)'}</b> · {open.email ?? 'no email'} · {open.date} {open.time} ·
                 {' '}{SHOPS.find((x) => x.key === open.shop)?.name} · {result(open)}
                 <button className="ml-3 text-xs underline" onClick={() => setOpen(null)}>Close</button></p>
               {html ? <EmailFrame html={html} /> : <p className="mt-2 text-sm text-stone-500">Loading email…</p>}
@@ -1043,7 +1052,7 @@ function Approvals({ s, liveAllowed, onDone }: { s: VisitEmailSettings; liveAllo
               <li key={it.id} className="py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <span className="min-w-0">
-                    <b className={np ? 'text-amber-800' : ''}>{it.first_name || '(no name)'}</b>{np ? <span className="text-xs text-amber-800"> ({np})</span> : null}
+                    <b className={np ? 'text-amber-800' : ''}>{cleanFirstName(it.first_name) ? <NameCell raw={it.first_name} /> : '(no name)'}</b>{np ? <span className="text-xs text-amber-800"> ({np})</span> : null}
                     {' · '}{it.email}
                     <span className="block text-xs text-stone-500">
                       {cafe(it.shop)} · visited {it.visit_date}{it.party_size ? ` · party of ${it.party_size}` : ''} · {it.variant === 'plain' ? 'plain' : 'full'} version
