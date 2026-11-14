@@ -15,7 +15,7 @@ export async function GET() {
   const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
   const { data, error } = await supabaseAdmin().from('visit_emails')
-    .select('id, shop, visit_date, visit_at, party_size, first_name, email, marketing, variant, state, due_at, source, error')
+    .select('id, shop, booking_id, visit_date, visit_at, party_size, first_name, email, marketing, variant, state, due_at, source, error')
     .in('state', ['queued', 'dry_run']).order('visit_at', { ascending: true }).order('due_at', { ascending: true }).limit(200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ items: data ?? [] });

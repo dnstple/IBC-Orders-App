@@ -989,7 +989,7 @@ function Versions({ onLoad }: { onLoad: (s: VisitEmailSettings) => void }) {
 
 /* ── Approval list: send queued emails one at a time, by hand ─────────── */
 type ApprovalItem = {
-  id: string; shop: string; visit_date: string; visit_at: string | null; party_size: number | null;
+  id: string; shop: string; booking_id: string; visit_date: string; visit_at: string | null; party_size: number | null;
   first_name: string | null; email: string | null; marketing: 'yes' | 'no' | null; variant: 'marketing' | 'plain' | null;
   state: string; due_at: string | null; source: string; error: string | null;
 };
@@ -1055,7 +1055,7 @@ function Approvals({ s, liveAllowed, onDone }: { s: VisitEmailSettings; liveAllo
                     <b className={np ? 'text-amber-800' : ''}>{cleanFirstName(it.first_name) ? <NameCell raw={it.first_name} /> : '(no name)'}</b>{np ? <span className="text-xs text-amber-800"> ({np})</span> : null}
                     {' · '}{it.email}
                     <span className="block text-xs text-stone-500">
-                      {cafe(it.shop)} · visited {it.visit_date}{it.party_size ? ` · party of ${it.party_size}` : ''} · {it.variant === 'plain' ? 'plain' : 'full'} version
+                      {cafe(it.shop)} · visited {it.visit_date}{it.visit_at ? ` at ${new Date(it.visit_at).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' })}` : ''}{it.party_size ? ` · party of ${it.party_size}` : ''} · TableAgent booking {it.booking_id} · {it.variant === 'plain' ? 'plain' : 'full'} version
                       {it.state === 'dry_run' ? ' · held in dry run' : s.mode === 'live' && it.due_at ? ` · sends automatically ${when(it.due_at)}` : ' · ready: Send now sends it immediately'}{it.source === 'backfill' ? ' · backfill' : ''}
                       {it.error ? <span className="text-red-700"> · last try: {it.error}</span> : null}
                     </span>
