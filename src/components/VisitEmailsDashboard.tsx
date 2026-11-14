@@ -1035,7 +1035,7 @@ function Approvals({ s, liveAllowed, onDone }: { s: VisitEmailSettings; liveAllo
       <p className="mt-1 text-xs text-stone-500">
         Guests the system has queued (or held in dry run). Check the email, then send them one at a time.
         {s.mode === 'manual' ? ' Mode is Approve each one, so nothing goes out unless you press Send.' : s.mode === 'live' ? ' Mode is Live: these also send automatically when due.' : ''}
-        {' '}Sending here ignores the send window and daily limit; every other rule still applies.
+        {' '}<b>Send now sends immediately</b>, whatever the time: it skips the send window, the hours-after-the-visit delay and the daily limit. Opt-outs, the marketing switch and cancelled bookings still apply.
       </p>
       {!liveAllowed && (
         <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
@@ -1056,7 +1056,7 @@ function Approvals({ s, liveAllowed, onDone }: { s: VisitEmailSettings; liveAllo
                     {' · '}{it.email}
                     <span className="block text-xs text-stone-500">
                       {cafe(it.shop)} · visited {it.visit_date}{it.party_size ? ` · party of ${it.party_size}` : ''} · {it.variant === 'plain' ? 'plain' : 'full'} version
-                      {it.state === 'dry_run' ? ' · held in dry run' : it.due_at ? ` · due ${when(it.due_at)}` : ''}{it.source === 'backfill' ? ' · backfill' : ''}
+                      {it.state === 'dry_run' ? ' · held in dry run' : s.mode === 'live' && it.due_at ? ` · sends automatically ${when(it.due_at)}` : ' · ready: Send now sends it immediately'}{it.source === 'backfill' ? ' · backfill' : ''}
                       {it.error ? <span className="text-red-700"> · last try: {it.error}</span> : null}
                     </span>
                   </span>
