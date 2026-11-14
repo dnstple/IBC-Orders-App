@@ -106,6 +106,7 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
         </div>
       )}
       <StatusCard s={saved} stats={stats} busy={busy} onRun={runNow} />
+      <Approvals s={saved} liveAllowed={!!stats?.server?.liveAllowed} onDone={load} />
       <Overview s={saved} stats={stats} />
       <SettingsCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} onReset={() => setS(saved)} liveAllowed={!!stats?.server?.liveAllowed} />
       <CopyCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} resendReady={!!stats?.server?.resendConfigured} />
@@ -125,7 +126,8 @@ function StatusCard({ s, stats, busy, onRun }: { s: VisitEmailSettings; stats: S
   const mode = {
     off: { label: 'Off', cls: 'bg-stone-200 text-stone-700', note: 'Nothing is read, queued or sent.' },
     dry_run: { label: 'Dry run', cls: 'bg-amber-100 text-amber-800', note: 'Everything runs and is counted, but no email leaves the building.' },
-    live: { label: 'Live', cls: 'bg-green-100 text-green-800', note: 'Emails are being sent.' },
+    manual: { label: 'Approve each one', cls: 'bg-sky-100 text-sky-800', note: 'Guests are queued as normal; nothing sends until you press Send in the approval list.' },
+    live: { label: 'Live', cls: 'bg-green-100 text-green-800', note: 'Emails are being sent automatically.' },
   }[s.mode];
   const lastRun = stats?.runs?.find((r: any) => r.kind !== 'backfill');
   const problems: string[] = [];
@@ -290,17 +292,21 @@ function SettingsCard({ s, set, dirty, busy, onSave, onReset, liveAllowed }: {
 
       <fieldset className="mt-4">
         <legend className="text-sm font-semibold">Mode</legend>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        <div className="mt-2 grid gap-2 sm:grid-cols-4">
           {([
             ['off', 'Off', 'Nothing happens.'],
             ['dry_run', 'Dry run', 'Decides and counts everything, sends nothing. Use this to test.'],
-            ['live', 'Live', liveAllowed ? 'Sends real emails.' : 'Locked: needs the email service set up on the server first.'],
-          ] as const).map(([v, l, h]) => (
-            <label key={v} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${s.mode === v ? 'border-cocoa-600 bg-cocoa-50' : 'border-stone-200'} ${v === 'live' && !liveAllowed ? 'opacity-60' : ''}`}>
-              <input type="radio" name="mode" checked={s.mode === v} disabled={v === 'live' && !liveAllowed} onChange={() => set('mode', v)} className="mt-1 accent-cocoa-600" />
+            ['manual', 'Approve each one', liveAllowed ? 'Queues as normal; you send each email by hand from the approval list.' : 'Locked: needs VISIT_EMAILS_ALLOW_LIVE=true on the server first.'],
+            ['live', 'Live', liveAllowed ? 'Sends real emails automatically.' : 'Locked: needs the email service set up on the server first.'],
+          ] as const).map(([v, l, h]) => {
+            const locked = (v === 'live' || v === 'manual') && !liveAllowed;
+            return (
+            <label key={v} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${s.mode === v ? 'border-cocoa-600 bg-cocoa-50' : 'border-stone-200'} ${locked ? 'opacity-60' : ''}`}>
+              <input type="radio" name="mode" checked={s.mode === v} disabled={locked} onChange={() => set('mode', v)} className="mt-1 accent-cocoa-600" />
               <span><span className="font-medium">{l}</span><span className="block text-xs text-stone-500">{h}</span></span>
             </label>
-          ))}
+            );
+          })}
         </div>
       </fieldset>
 
@@ -966,6 +972,95 @@ function Versions({ onLoad }: { onLoad: (s: VisitEmailSettings) => void }) {
               <button className={btnGhost} onClick={() => loadOne(v.id)}>Load</button>
             </li>
           ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/* ── Approval list: send queued emails one at a time, by hand ─────────── */
+type ApprovalItem = {
+  id: string; shop: string; visit_date: string; visit_at: string | null; party_size: number | null;
+  first_name: string | null; email: string | null; marketing: 'yes' | 'no' | null; variant: 'marketing' | 'plain' | null;
+  state: string; due_at: string | null; source: string; error: string | null;
+};
+
+function Approvals({ s, liveAllowed, onDone }: { s: VisitEmailSettings; liveAllowed: boolean; onDone: () => void }) {
+  const [items, setItems] = useState<ApprovalItem[] | null>(null);
+  const [busy, setBusy] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  const [html, setHtml] = useState('');
+  const reload = useCallback(async () => {
+    try { setItems((await api('/api/visit-emails/approvals')).items); } catch (e) { toast((e as Error).message, 'error'); }
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+
+  async function preview(it: ApprovalItem) {
+    if (open === it.id) { setOpen(null); return; }
+    setOpen(it.id); setHtml('');
+    try {
+      const e = await api('/api/visit-emails/preview', { settings: s, variant: it.variant ?? 'marketing', shop: it.shop, first_name: it.first_name ?? '', visit_date: it.visit_date });
+      setHtml(e.html);
+    } catch (e) { toast((e as Error).message, 'error'); }
+  }
+  async function act(it: ApprovalItem, action: 'send' | 'skip') {
+    if (action === 'send' && !confirm(`Send the real thank-you email to ${it.email} now?`)) return;
+    if (action === 'skip' && !confirm(`Don't send to ${it.email}? It will be removed from the list.`)) return;
+    setBusy(it.id + action);
+    try {
+      await api('/api/visit-emails/approvals', { id: it.id, action });
+      toast(action === 'send' ? `Sent to ${it.email}.` : 'Removed from the list.', 'success');
+      if (open === it.id) setOpen(null);
+      await reload(); onDone();
+    } catch (e) { toast((e as Error).message, 'error'); }
+    setBusy('');
+  }
+
+  const cafe = (k: string) => SHOPS.find((x) => x.key === k)?.name ?? k;
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">Approval list {items ? <span className="text-sm font-normal text-stone-500">({items.length} waiting)</span> : null}</h2>
+        <button className={btnGhost} onClick={reload}>Refresh</button>
+      </div>
+      <p className="mt-1 text-xs text-stone-500">
+        Guests the system has queued (or held in dry run). Check the email, then send them one at a time.
+        {s.mode === 'manual' ? ' Mode is Approve each one, so nothing goes out unless you press Send.' : s.mode === 'live' ? ' Mode is Live: these also send automatically when due.' : ''}
+        {' '}Sending here ignores the send window and daily limit; every other rule still applies.
+      </p>
+      {!liveAllowed && (
+        <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+          Sending is locked on the server. To unlock: Vercel → Settings → Environment Variables → add <code>VISIT_EMAILS_ALLOW_LIVE</code> = <code>true</code>, then Redeploy.
+          With the mode set to Dry run or Approve each one, nothing will send by itself after that.
+        </p>
+      )}
+      {items && items.length === 0 && <p className="mt-3 text-sm text-stone-500">Nothing waiting. Guests appear here after their visit is marked as arrived (Run now to check straight away).</p>}
+      {items && items.length > 0 && (
+        <ul className="mt-3 divide-y divide-stone-100">
+          {items.map((it) => {
+            const np = nameProblem(it.first_name ?? '');
+            return (
+              <li key={it.id} className="py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <span className="min-w-0">
+                    <b className={np ? 'text-amber-800' : ''}>{it.first_name || '(no name)'}</b>{np ? <span className="text-xs text-amber-800"> ({np})</span> : null}
+                    {' · '}{it.email}
+                    <span className="block text-xs text-stone-500">
+                      {cafe(it.shop)} · visited {it.visit_date}{it.party_size ? ` · party of ${it.party_size}` : ''} · {it.variant === 'plain' ? 'plain' : 'full'} version
+                      {it.state === 'dry_run' ? ' · held in dry run' : it.due_at ? ` · due ${when(it.due_at)}` : ''}{it.source === 'backfill' ? ' · backfill' : ''}
+                      {it.error ? <span className="text-red-700"> · last try: {it.error}</span> : null}
+                    </span>
+                  </span>
+                  <span className="flex gap-2">
+                    <button className={btnGhost} onClick={() => preview(it)}>{open === it.id ? 'Hide' : 'Preview'}</button>
+                    <button className={btn} disabled={!liveAllowed || !!busy} onClick={() => act(it, 'send')}>{busy === it.id + 'send' ? 'Sending…' : 'Send now'}</button>
+                    <button className={btnGhost} disabled={!!busy} onClick={() => act(it, 'skip')}>Don’t send</button>
+                  </span>
+                </div>
+                {open === it.id && (html ? <EmailFrame html={html} /> : <p className="mt-2 text-sm text-stone-500">Loading email…</p>)}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

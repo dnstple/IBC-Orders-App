@@ -282,3 +282,29 @@ describe('styles', () => {
     expect(normaliseSettings(s)).toMatchObject(mine);
   });
 });
+
+import { sendApprovedEmail } from '@/lib/visit-emails/sender';
+
+describe('approve each one', () => {
+  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+  const email = () => renderEmail(S(), { token: 't', appUrl: 'https://app.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-08', variant: 'marketing' });
+
+  it('is a valid mode that survives saving', () => {
+    expect(normaliseSettings({ mode: 'manual' }).mode).toBe('manual');
+  });
+  it('a hand-approved email still needs the server lock open', async () => {
+    const f = vi.fn(); vi.stubGlobal('fetch', f);
+    vi.stubEnv('RESEND_API_KEY', 'k'); vi.stubEnv('VISIT_EMAILS_ALLOW_LIVE', 'false');
+    await expect(sendApprovedEmail(S({ mode: 'manual' }), 'g@example.com', email(), 'x')).rejects.toBeInstanceOf(LiveSendingLocked);
+    expect(f).not.toHaveBeenCalled();
+  });
+  it('with the lock open it sends exactly one email to that guest, even in manual mode', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'r9' }) }); vi.stubGlobal('fetch', f);
+    vi.stubEnv('RESEND_API_KEY', 'k'); vi.stubEnv('VISIT_EMAILS_ALLOW_LIVE', 'true');
+    await expect(sendApprovedEmail(S({ mode: 'manual' }), 'g@example.com', email(), 'visit-email-1')).resolves.toEqual({ id: 'r9' });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(f.mock.calls[0][1].body).to).toEqual(['g@example.com']);
+    // but automatic sending is still refused in manual mode
+    await expect(sendEmail(S({ mode: 'manual' }), 'g@example.com', email(), 'x')).rejects.toBeInstanceOf(LiveSendingLocked);
+  });
+});

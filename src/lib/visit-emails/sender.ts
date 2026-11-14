@@ -20,6 +20,12 @@ export async function sendEmail(
   return deliver(s, to, email, idempotencyKey);
 }
 
+/** One email an admin approved by hand (Approve-each-one mode, or a dry-run email). Needs the server lock open. */
+export async function sendApprovedEmail(s: VisitEmailSettings, to: string, email: RenderedEmail, idempotencyKey: string): Promise<{ id: string }> {
+  if (!liveSendingAllowed()) throw new LiveSendingLocked();
+  return deliver(s, to, email, idempotencyKey);
+}
+
 /** Resend is set up (key present). Test sends only need this; guest sends need liveSendingAllowed(). */
 export function resendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY);

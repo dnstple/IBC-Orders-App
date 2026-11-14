@@ -12,7 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { addDays, decide, decideAssumingAttendance, inSendWindow, londonDateTime, londonDay, visitStart, type Visit } from './eligibility';
 import { fetchVisits } from './feed';
 import { renderEmail } from './render';
-import { sendEmail, LiveSendingLocked } from './sender';
+import { sendEmail, sendApprovedEmail, LiveSendingLocked } from './sender';
 import { liveSendingAllowed, normaliseSettings, type VisitEmailSettings } from './settings';
 
 export const AUTO_LOOKBACK_DAYS = 4;
@@ -130,6 +130,7 @@ export async function planVisits(
 export async function sendDue(s: VisitEmailSettings, now = new Date()) {
   const out = { sent: 0, dry_run: 0, failed: 0, held: '' as string };
   if (s.mode === 'off') { out.held = 'Mode is off'; return out; }
+  if (s.mode === 'manual') { out.held = 'Waiting for approval (Approve each one)'; return out; }
   if (s.mode === 'live' && !liveSendingAllowed()) { out.held = 'Live sending is locked on the server'; return out; }
   if (!inSendWindow(now, s)) { out.held = 'Outside the send window'; return out; }
 
@@ -284,4 +285,45 @@ export async function sampleVisits(from: string, to: string, s: VisitEmailSettin
     else out.push({ ...row, action: d.action });
   }
   return { rows: out, statuses: feed.statuses, feedErrors: feed.errors };
+}
+
+/**
+ * Approve-each-one: send ONE queued (or dry-run) email now, after an admin
+ * pressed Send for it. Same checks as automatic sending (opt-outs, marketing
+ * switch, café on), but the send window and daily limit are the admin's call.
+ */
+export async function sendOneApproved(id: string, approvedBy: string): Promise<{ ok: true; to: string } | { ok: false; error: string }> {
+  if (!liveSendingAllowed()) return { ok: false, error: 'Live sending is locked on the server (VISIT_EMAILS_ALLOW_LIVE / RESEND_API_KEY).' };
+  const s = await loadSettings();
+  const db = supabaseAdmin();
+  const { data: row } = await db.from('visit_emails').select('*').eq('id', id).maybeSingle();
+  if (!row) return { ok: false, error: 'That email no longer exists.' };
+  if (row.state !== 'queued' && row.state !== 'dry_run') return { ok: false, error: `Already ${row.state}.` };
+  if (!row.email) return { ok: false, error: 'No email address on this one.' };
+  const { data: sup } = await db.from('visit_email_suppressions').select('email').eq('email', row.email).maybeSingle();
+  if (sup) {
+    await db.from('visit_emails').update({ state: 'cancelled', skip_reason: 'opted_out', email: null, first_name: null }).eq('id', id);
+    return { ok: false, error: 'This guest asked not to be emailed, so it was cancelled.' };
+  }
+  if (s.respect_marketing && row.marketing !== 'yes') return { ok: false, error: 'This guest did not tick news and offers, and the marketing switch is on.' };
+  if (!s.shops.includes(row.shop)) return { ok: false, error: 'That café is switched off in settings.' };
+
+  // Claim it so a double-click (or the poller) can never send it twice.
+  const { data: claimed } = await db.from('visit_emails').update({ state: 'queued', attempts: (row.attempts ?? 0) + 1 })
+    .eq('id', id).eq('state', row.state).eq('attempts', row.attempts ?? 0).select('id');
+  if (!claimed?.length) return { ok: false, error: 'Someone else is sending this one already.' };
+
+  const email = renderEmail(s, {
+    token: row.token, appUrl: appUrl(), shop: row.shop, firstName: row.first_name ?? '', visitDate: row.visit_date, variant: row.variant ?? 'marketing',
+  });
+  try {
+    const res = await sendApprovedEmail(s, row.email, email, `visit-email-${row.id}`);
+    await db.from('visit_emails').update({ state: 'sent', sent_at: new Date().toISOString(), provider_message_id: res.id, error: null }).eq('id', id);
+    await db.from('visit_email_runs').insert({ kind: 'manual', mode: s.mode, sent: 1, error: `Approved by ${approvedBy}`, finished_at: new Date().toISOString() });
+    return { ok: true, to: row.email };
+  } catch (e) {
+    const msg = e instanceof LiveSendingLocked ? e.message : String((e as Error).message).slice(0, 300);
+    await db.from('visit_emails').update({ state: row.state, error: msg }).eq('id', id);
+    return { ok: false, error: msg };
+  }
 }

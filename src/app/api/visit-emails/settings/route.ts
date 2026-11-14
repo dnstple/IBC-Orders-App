@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const next = normaliseSettings(body);
 
-  if (next.mode === 'live' && !liveSendingAllowed()) {
+  if ((next.mode === 'live' || next.mode === 'manual') && !liveSendingAllowed()) {
     return NextResponse.json({
       error: 'Live sending is locked on the server. It needs RESEND_API_KEY and VISIT_EMAILS_ALLOW_LIVE=true in Vercel first.',
     }, { status: 409 });

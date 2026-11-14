@@ -5,7 +5,8 @@
  * the engine can trust what it reads.
  */
 
-export type VisitEmailMode = 'off' | 'dry_run' | 'live';
+/** manual = guests are found and queued as normal, but each email waits for an admin to press Send. */
+export type VisitEmailMode = 'off' | 'dry_run' | 'manual' | 'live';
 export type Shop = 'soho' | 'fitzrovia';
 export const SHOPS: Array<{ key: Shop; name: string; address: string }> = [
   { key: 'soho', name: 'Soho', address: '41 Broadwick Street, London W1F 9QL' },
@@ -25,7 +26,7 @@ export interface VisitEmailLink {
 }
 
 export interface VisitEmailSettings {
-  /** off = nothing queued or sent · dry_run = everything runs, nothing is sent · live = sends. */
+  /** off = nothing · dry_run = everything runs, nothing is sent · manual = queued, each one sent by hand · live = sends automatically. */
   mode: VisitEmailMode;
   shops: Shop[];
   /** TableAgent status codes that mean the guest turned up (picked from what the feed reports). */
@@ -139,7 +140,7 @@ const isHttpUrl = (u: string) => /^https:\/\/[^\s]+$/i.test(u);
 export function normaliseSettings(raw: unknown): VisitEmailSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_SETTINGS;
-  const mode = ['off', 'dry_run', 'live'].includes(r.mode as string) ? (r.mode as VisitEmailMode) : d.mode;
+  const mode = ['off', 'dry_run', 'manual', 'live'].includes(r.mode as string) ? (r.mode as VisitEmailMode) : d.mode;
   const shops = Array.isArray(r.shops)
     ? (r.shops.filter((s) => SHOPS.some((x) => x.key === s)) as Shop[])
     : d.shops;
