@@ -9,7 +9,7 @@
  * that then go out in batches through step 3.
  */
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { addDays, decide, inSendWindow, londonDateTime, londonDay, visitStart, type Visit } from './eligibility';
+import { addDays, decide, decideAssumingAttendance, inSendWindow, londonDateTime, londonDay, visitStart, type Visit } from './eligibility';
 import { fetchVisits } from './feed';
 import { renderEmail } from './render';
 import { sendEmail, LiveSendingLocked } from './sender';
@@ -252,7 +252,7 @@ export interface SampleRow {
  * or after the go-live date use the automatic rules, older ones the
  * backfill rules - exactly what would happen for real.
  */
-export async function sampleVisits(from: string, to: string, s: VisitEmailSettings, now = new Date()) {
+export async function sampleVisits(from: string, to: string, s: VisitEmailSettings, now = new Date(), assumeAttend = false) {
   const feed = await fetchVisits(from, to);
   const rows = feed.rows.sort((a, b) => visitStart(a).getTime() - visitStart(b).getTime());
   const keys = rows.map(keyOf);
@@ -274,7 +274,9 @@ export async function sampleVisits(from: string, to: string, s: VisitEmailSettin
     };
     const st = handled.get(keyOf(v));
     if (st) { out.push({ ...row, action: 'handled', handled_state: st }); continue; }
-    const d = decide(v, s, { now, source, suppressed, recent });
+    const d = assumeAttend
+      ? decideAssumingAttendance(v, s, { now, source, suppressed, recent })
+      : decide(v, s, { now, source, suppressed, recent });
     if (d.action === 'queue') {
       recent.add((v.email ?? '').toLowerCase());
       out.push({ ...row, action: 'queue', variant: d.variant, due_at: d.dueAt.toISOString() });

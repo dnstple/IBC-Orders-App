@@ -243,3 +243,20 @@ describe('brand-font images', () => {
     expect(e.html).toContain('alt="All you need is chocolate"');
   });
 });
+
+import { decideAssumingAttendance } from '@/lib/visit-emails/eligibility';
+
+describe('assume everyone attends (preview only)', () => {
+  const future = visit({ date: '2026-11-15', starts_at: '2026-11-15T13:00:00+00:00', status: { id: 2, code: 'confirmed', name: 'Confirmed' } });
+  it('treats a future confirmed booking as arrived and gives its real send time', () => {
+    const d = decideAssumingAttendance(future, S({ delay_hours: 20, auto_from_date: '2026-12-01' }), ctx({ now: new Date('2026-11-14T09:00:00Z') }));
+    expect(d).toEqual({ action: 'queue', variant: 'marketing', dueAt: new Date('2026-11-16T10:00:00Z') });
+  });
+  it('still leaves out cancelled bookings and no-shows, and still respects the marketing switch', () => {
+    expect(decideAssumingAttendance({ ...future, status: { id: 6, code: 'canceled', name: 'Canceled' } }, S(), ctx()))
+      .toEqual({ action: 'skip', reason: 'booking_cancelled' });
+    expect(decideAssumingAttendance({ ...future, status: { id: 5, code: 'no_show', name: 'No Show' } }, S(), ctx()))
+      .toEqual({ action: 'skip', reason: 'not_arrived' });
+    expect(decideAssumingAttendance({ ...future, marketing: 'no' }, S(), ctx())).toEqual({ action: 'skip', reason: 'marketing_no' });
+  });
+});

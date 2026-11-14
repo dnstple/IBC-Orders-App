@@ -6,7 +6,11 @@ import { addDays, londonDay } from '@/lib/visit-emails/eligibility';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-/** Admin only: bookings in a date range (max 31 days) and what the rules would do with each. Saves nothing. */
+/**
+ * Admin only: bookings in a date range (max 31 days) and what the rules would
+ * do with each. assume_attend=true treats every non-cancelled booking as
+ * arrived (for previewing future days). Saves nothing, sends nothing.
+ */
 export async function POST(req: NextRequest) {
   const gate = await requireRole('admin');
   if ('error' in gate) return gate.error;
@@ -19,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (addDays(from, 31) < to) return NextResponse.json({ error: 'Choose 31 days or fewer.' }, { status: 400 });
   try {
     const s = await loadSettings();
-    return NextResponse.json({ from, to, ...(await sampleVisits(from, to, s)) });
+    return NextResponse.json({ from, to, ...(await sampleVisits(from, to, s, new Date(), body.assume_attend === true)) });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }

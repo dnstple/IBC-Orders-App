@@ -675,11 +675,37 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<SampleRow | null>(null);
   const [html, setHtml] = useState('');
+  const [assume, setAssume] = useState(false);
 
-  async function loadRows() {
+  async function loadRows(range?: [string, string], assumeAttend = assume) {
+    const [f, t] = range ?? [from, to];
     setBusy(true); setOpen(null);
-    try { setRows((await api('/api/visit-emails/sample', { from, to })).rows); } catch (e) { toast((e as Error).message, 'error'); }
+    try { setRows((await api('/api/visit-emails/sample', { from: f, to: t, assume_attend: assumeAttend })).rows); } catch (e) { toast((e as Error).message, 'error'); }
     setBusy(false);
+  }
+  /** This Saturday and Sunday (today and tomorrow if it's already Saturday; today if Sunday). */
+  function thisWeekend() {
+    const today = ymdLocal(new Date());
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0 Sun … 6 Sat
+    const add = (n: number) => { const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    const sat = dow === 0 ? add(-1) : add(6 - dow);
+    const range: [string, string] = [dow === 0 ? today : sat, add(dow === 0 ? 0 : 7 - dow)];
+    setFrom(range[0]); setTo(range[1]); setAssume(true); setFilter('all');
+    void loadRows(range, true);
+  }
+  function downloadCsv() {
+    if (!rows) return;
+    const head = ['visit_date', 'weekday', 'time', 'cafe', 'party_size', 'tableagent_status', 'first_name', 'name_check', 'email', 'marketing', 'result', 'version', 'would_send'];
+    const cell = (v: unknown) => { const t = String(v ?? ''); const safe = /^[=+\-@]/.test(t) ? `'${t}` : t; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+    const lines = [head.join(',')].concat(rows.map((r) => [
+      r.date, new Date(`${r.date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' }), r.time,
+      SHOPS.find((x) => x.key === r.shop)?.name ?? r.shop, r.party_size, r.status, r.first_name, nameProblem(r.first_name) ?? 'ok',
+      r.email ?? '', r.marketing ?? 'unanswered', result(r), r.variant ?? '', r.due_at ? when(r.due_at) : '',
+    ].map(cell).join(',')));
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `visit-emails-${from}-to-${to}${assume ? '-if-all-attend' : ''}.csv`; a.click();
+    URL.revokeObjectURL(a.href);
   }
   async function show(r: SampleRow) {
     setOpen(r); setHtml('');
@@ -715,8 +741,15 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="block text-sm">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={input} /></label>
         <label className="block text-sm">to<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={input} /></label>
-        <button className={btnGhost} disabled={busy || !from || !to} onClick={loadRows}>{busy ? 'Loading…' : 'Show bookings'}</button>
+        <button className={btnGhost} disabled={busy || !from || !to} onClick={() => loadRows()}>{busy ? 'Loading…' : 'Show bookings'}</button>
+        <button className={btnGhost} disabled={busy} onClick={thisWeekend}>This weekend</button>
+        {rows && <button className={btnGhost} onClick={downloadCsv}>Download CSV</button>}
       </div>
+      <label className="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={assume} onChange={(e) => setAssume(e.target.checked)} className="mt-1 h-4 w-4 accent-cocoa-600" />
+        <span><b>Assume everyone attends</b> <span className="text-xs text-stone-500">– for future dates: every booking that isn't cancelled or a no-show counts as arrived. Press Show bookings again after changing.</span></span>
+      </label>
+      {rows && <QualitySummary rows={rows} />}
       {rows && (
         <>
           <div className="mt-3 flex flex-wrap gap-2 text-sm">
@@ -797,6 +830,44 @@ function Funnel({ stats, s }: { stats: Stats; s: VisitEmailSettings }) {
         Opens are approximate: Apple Mail opens every email automatically and some people block images.
         Visits and sales from the email: Shopify → Analytics → Reports, filter by UTM campaign <code>{s.utm_campaign}</code>.
       </p>
+    </div>
+  );
+}
+
+/* ── Data quality at a glance, for the bookings loaded in Check the data ── */
+function QualitySummary({ rows }: { rows: SampleRow[] }) {
+  const live = rows.filter((r) => r.reason !== 'booking_cancelled');
+  const n = live.length;
+  const pct = (a: number) => (n ? `${Math.round((a / n) * 100)}%` : '–');
+  const noEmail = live.filter((r) => !r.email).length;
+  const byEmail = new Map<string, number>();
+  for (const r of live) if (r.email) byEmail.set(r.email, (byEmail.get(r.email) ?? 0) + 1);
+  const repeatGuests = [...byEmail.values()].filter((c) => c > 1).length;
+  const nameIssues = new Map<string, number>();
+  for (const r of live) { const p = nameProblem(r.first_name); if (p) nameIssues.set(p, (nameIssues.get(p) ?? 0) + 1); }
+  const mk = { yes: live.filter((r) => r.marketing === 'yes').length, no: live.filter((r) => r.marketing === 'no').length };
+  const unanswered = n - mk.yes - mk.no;
+  const would = live.filter((r) => r.action === 'queue');
+  const cancelled = rows.length - n;
+  const cafes = SHOPS.map((x) => `${x.name} ${live.filter((r) => r.shop === x.key).length}`).join(' · ');
+  const guests = live.reduce((a, r) => a + (r.party_size ?? 0), 0);
+  return (
+    <div className="mt-4 grid gap-3 rounded-lg bg-cocoa-50 p-3 text-sm sm:grid-cols-3">
+      <div>
+        <div className="text-xs text-stone-500">Bookings</div>
+        <div><b>{n}</b> ({cafes}), {guests} guests{cancelled ? `; ${cancelled} cancelled left out` : ''}</div>
+        <div className="mt-1"><b>{would.length}</b> would get an email ({would.filter((r) => r.variant === 'marketing').length} full, {would.filter((r) => r.variant === 'plain').length} plain)</div>
+      </div>
+      <div>
+        <div className="text-xs text-stone-500">Marketing answer</div>
+        <div>Yes <b>{mk.yes}</b> ({pct(mk.yes)}) · No <b>{mk.no}</b> ({pct(mk.no)}) · Not answered <b>{unanswered}</b> ({pct(unanswered)})</div>
+        <div className="mt-1 text-xs text-stone-500">“Not answered” is usually bookings made by staff in TableAgent or before the tick box existed.</div>
+      </div>
+      <div>
+        <div className="text-xs text-stone-500">Data quality</div>
+        <div>No email: <b>{noEmail}</b> ({pct(noEmail)}) · Repeat guests: <b>{repeatGuests}</b></div>
+        <div>Names to check: {nameIssues.size === 0 ? <b>none</b> : [...nameIssues].map(([k, c]) => `${k} ${c}`).join(' · ')}</div>
+      </div>
     </div>
   );
 }

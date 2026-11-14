@@ -28,7 +28,8 @@ export type SkipReason =
   | 'marketing_no'
   | 'marketing_unanswered'
   | 'duplicate'
-  | 'too_late';
+  | 'too_late'
+  | 'booking_cancelled';
 
 export const SKIP_LABELS: Record<SkipReason | 'cancelled', string> = {
   shop_off: 'Café switched off',
@@ -39,6 +40,7 @@ export const SKIP_LABELS: Record<SkipReason | 'cancelled', string> = {
   marketing_unanswered: 'Never answered the marketing question',
   duplicate: 'Already emailed recently',
   too_late: 'Too long after the visit',
+  booking_cancelled: 'Booking was cancelled',
   cancelled: 'Cancelled before sending',
 };
 
@@ -105,6 +107,27 @@ export function decide(v: Visit, s: VisitEmailSettings, ctx: DecideContext): Dec
     due = ctx.now;
   }
   return { action: 'queue', variant, dueAt: intoSendWindow(due, s) };
+}
+
+/**
+ * "What if everyone turns up?" preview for future dates (Check the data).
+ * Every booking that isn't cancelled or a no-show is treated as arrived, and
+ * judged as if just after its start time, so the result shows who would get
+ * an email, which version, and when. Marketing switch, opt-outs and the
+ * one-email-per-address rule still apply. Never used for real sending.
+ */
+export const ASSUMED_STATUS = '__assumed_arrived__';
+export function decideAssumingAttendance(v: Visit, s: VisitEmailSettings, ctx: DecideContext): Decision {
+  const code = v.status.code.toLowerCase();
+  if (/cancel/.test(code)) return { action: 'skip', reason: 'booking_cancelled' };
+  if (/no.?show/.test(code)) return { action: 'skip', reason: 'not_arrived' };
+  const start = visitStart(v);
+  const now = new Date(Math.max(ctx.now.getTime(), start.getTime() + 60_000));
+  return decide(
+    { ...v, status: { ...v.status, code: ASSUMED_STATUS } },
+    { ...s, arrived_statuses: [ASSUMED_STATUS], auto_from_date: '' },
+    { ...ctx, now, source: 'auto' },
+  );
 }
 
 /* ---------------- London time helpers ---------------- */
