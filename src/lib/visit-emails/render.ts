@@ -179,7 +179,7 @@ export function renderEmail(s: VisitEmailSettings, input: RenderInput): Rendered
   const shopInfo = SHOPS.find((x) => x.key === input.shop);
 
   const p = (html: string, extra = '') =>
-    `<p style="margin:0 0 16px;font-family:${F.body};font-size:16px;line-height:1.6;color:${C.ink}${extra}">${html}</p>`;
+    `<p style="margin:0 0 14px;font-family:${F.body};font-size:14px;line-height:1.6;color:${C.ink}${extra}">${html}</p>`;
 
   const imgStyle = (extra: string) => `border:0;outline:none;max-width:100%;height:auto;${extra}`;
   /** One image for normal inboxes, plus a white one that only dark-mode inboxes show. */
