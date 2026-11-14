@@ -42,6 +42,23 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
   }, []);
   useEffect(() => { void load(); }, [load]);
 
+  // Unsaved work is never silently lost: a draft is kept in this browser,
+  // and leaving the page with unsaved changes asks first.
+  const [draft, setDraft] = useState<{ at: string; s: VisitEmailSettings } | null>(null);
+  useEffect(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
+      if (d?.s && JSON.stringify(d.s) !== JSON.stringify(initialSettings)) setDraft(d);
+    } catch { /* storage unavailable */ }
+  }, [initialSettings]);
+  useEffect(() => {
+    if (!dirty) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: new Date().toISOString(), s })); } catch { /* ignore */ }
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, s]);
+
   const set = <K extends keyof VisitEmailSettings>(k: K, v: VisitEmailSettings[K]) => setS((p) => ({ ...p, [k]: v }));
 
   async function save(next = s) {
@@ -49,6 +66,8 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
     try {
       const r = await api('/api/visit-emails/settings', next);
       setSaved(r.settings); setS(r.settings);
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+      setDraft(null);
       toast('Settings saved.', 'success');
       void load();
     } catch (e) { toast((e as Error).message, 'error'); }
@@ -70,6 +89,22 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
 
   return (
     <div className="space-y-6">
+      {draft && !dirty && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          You have changes from {when(draft.at)} that were never saved.
+          <button className="ml-3 font-semibold underline" onClick={() => { setS(draft.s); setDraft(null); }}>Bring them back</button>
+          <button className="ml-3 underline" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ } setDraft(null); }}>Discard</button>
+        </div>
+      )}
+      {dirty && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 shadow">
+          <span><b>Unsaved changes.</b> They're kept in this browser, but only saved changes are used for emails.</span>
+          <span className="flex gap-2">
+            <button className={btn} onClick={() => save()} disabled={!!busy}>{busy === 'save' ? 'Saving…' : 'Save now'}</button>
+            <button className={btnGhost} onClick={() => setS(saved)}>Undo changes</button>
+          </span>
+        </div>
+      )}
       <StatusCard s={saved} stats={stats} busy={busy} onRun={runNow} />
       <Overview s={saved} stats={stats} />
       <SettingsCard s={s} set={set} dirty={dirty} busy={busy} onSave={() => save()} onReset={() => setS(saved)} liveAllowed={!!stats?.server?.liveAllowed} />
@@ -77,10 +112,13 @@ export function VisitEmailsDashboard({ initialSettings }: { initialSettings: Vis
       <DataCheck s={s} />
       <Backfill s={saved} dirty={dirty} onDone={load} />
       <Activity stats={stats} />
+      <Versions onLoad={(v) => { setS(v); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('Version loaded. Check it, then press Save now.', 'info'); }} />
       <Housekeeping onDone={load} />
     </div>
   );
 }
+
+const DRAFT_KEY = 'ibc-visit-emails-draft';
 
 /* ── Status ─────────────────────────────────────────────────────────────── */
 function StatusCard({ s, stats, busy, onRun }: { s: VisitEmailSettings; stats: Stats; busy: string; onRun: () => void }) {
@@ -402,9 +440,20 @@ function CopyCard({ s, set, dirty, busy, onSave, resendReady }: { s: VisitEmailS
       </p>
       <div className="mt-4 grid gap-5 lg:grid-cols-2">
         <div className="space-y-3">
+          <fieldset className="text-sm">
+            <legend>Style</legend>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {([['letter', 'Letter', 'Plain and personal: small name at the top, simple button.'], ['branded', 'Branded', 'Brown header bar, big heading, bigger buttons.']] as const).map(([v, l, h]) => (
+                <label key={v} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 ${s.style === v ? 'border-cocoa-600 bg-cocoa-50' : 'border-stone-200'}`}>
+                  <input type="radio" name="style" checked={s.style === v} onChange={() => set('style', v)} className="mt-1 accent-cocoa-600" />
+                  <span><span className="font-medium">{l}</span><span className="block text-xs text-stone-500">{h}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <label className="block text-sm">Subject<input value={s.subject} onChange={(e) => set('subject', e.target.value)} className={input} /></label>
           <label className="block text-sm">Preview line (shown after the subject in the inbox)<input value={s.preheader} onChange={(e) => set('preheader', e.target.value)} className={input} /></label>
-          <label className="block text-sm">Heading<input value={s.heading} onChange={(e) => set('heading', e.target.value)} className={input} /></label>
+          <label className="block text-sm">Heading (the greeting line in the Letter style)<input value={s.heading} onChange={(e) => set('heading', e.target.value)} className={input} /></label>
           {area('Message: full version', 'body_marketing', 'Guests who ticked “news and offers”. Can mention the shop.')}
           {area('Message: plain version', 'body_plain', 'Guests who didn’t tick it (only used when sending to everyone). Thank-you and review only.')}
           {area('Sign-off', 'signoff', '', 2)}
@@ -799,28 +848,46 @@ function DataCheck({ s }: { s: VisitEmailSettings }) {
 /* ── Funnel: sent → delivered → opened → clicked (real sends only) ─────── */
 function Funnel({ stats, s }: { stats: Stats; s: VisitEmailSettings }) {
   const f = stats.funnel as null | Record<string, number>;
+  const [sales, setSales] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [salesErr, setSalesErr] = useState('');
+  useEffect(() => {
+    if (!f?.sent) return;
+    api('/api/visit-emails/sales').then(setSales).catch((e) => setSalesErr((e as Error).message));
+  }, [f?.sent]);
   const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+  const gbp = (n: number) => `£${(n ?? 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (!f) {
     return <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Delivery and open tracking needs the database update <code>0007_visit_email_events.sql</code> running in Supabase.</p>;
   }
-  const steps: Array<[string, number, string]> = [
-    ['Sent', f.sent, ''],
-    ['Delivered', f.delivered, `${pct(f.delivered, f.sent)} of sent`],
-    ['Opened', f.opened, `${pct(f.opened, f.delivered)} of delivered`],
-    ['Clicked a link', f.clicked, `${pct(f.clicked, f.delivered)} of delivered · ${pct(f.clicked, f.opened)} of opened`],
+  const ordered = sales?.viaLink?.orders ?? 0;
+  const steps: Array<[string, string, string]> = [
+    ['Sent', String(f.sent), ''],
+    ['Delivered', String(f.delivered), `${pct(f.delivered, f.sent)} of sent`],
+    ['Opened', String(f.opened), `${pct(f.opened, f.delivered)} of delivered`],
+    ['Clicked a link', String(f.clicked), `${pct(f.clicked, f.delivered)} of delivered · ${pct(f.clicked, f.opened)} of opened`],
+    ['Ordered online', !f.sent ? '0' : sales ? String(ordered) : '…',
+      sales ? `${gbp(sales.viaLink.revenue)} · ${pct(ordered, f.clicked)} of clickers` : salesErr ? 'couldn’t load' : ''],
   ];
   return (
     <div className="mt-5">
       <h3 className="text-sm font-semibold">Funnel (real emails only)</h3>
-      <ol className="mt-2 grid gap-2 sm:grid-cols-4">
+      <ol className="mt-2 grid gap-2 sm:grid-cols-5">
         {steps.map(([label, n, sub], i) => (
-          <li key={label} className="rounded-lg border border-stone-200 p-3">
+          <li key={label} className={`rounded-lg border p-3 ${i === 4 ? 'border-cocoa-600 bg-cocoa-50' : 'border-stone-200'}`}>
             <div className="text-xs text-stone-500">{i + 1}. {label}</div>
             <div className="text-xl font-semibold text-cocoa-900">{n}</div>
             {sub && <div className="text-xs text-stone-500">{sub}</div>}
           </li>
         ))}
       </ol>
+      {sales && (
+        <p className="mt-2 text-xs text-stone-600">
+          <b>Ordered online</b> = Shopify orders that arrived through the email’s links (tagged <code>{s.utm_campaign}</code>)
+          {Object.keys(sales.viaLink.byLink).length ? `: ${Object.entries(sales.viaLink.byLink as Record<string, { orders: number; revenue: number }>).map(([k, v]) => `${findLink(s, k)?.label ?? k} ${v.orders} (${gbp(v.revenue)})`).join(' · ')}` : ''}.
+          {' '}Wider view: <b>{sales.byGuests.orders}</b> online order{sales.byGuests.orders === 1 ? '' : 's'} ({gbp(sales.byGuests.revenue)}) from {sales.byGuests.guests} emailed guest{sales.byGuests.guests === 1 ? '' : 's'} within {sales.byGuests.windowDays} days of their email, however they reached the shop.
+          {sales.viaLink.error ? ` Shopify: ${sales.viaLink.error}` : ''}
+        </p>
+      )}
       <p className="mt-2 text-xs text-stone-600">
         Problems: {f.bounced} bounced · {f.delayed} still delayed · {f.complained} marked as spam · {f.optedOut} opted out
         {f.sent ? ` (spam rate ${pct(f.complained, f.delivered)}; keep under 0.1%)` : ''}.
@@ -828,7 +895,7 @@ function Funnel({ stats, s }: { stats: Stats; s: VisitEmailSettings }) {
       <p className="mt-1 text-xs text-stone-500">
         {stats.webhookConfigured ? '' : 'Delivered/opened/bounced need the Resend webhook set up (RESEND_WEBHOOK_SECRET). '}
         Opens are approximate: Apple Mail opens every email automatically and some people block images.
-        Visits and sales from the email: Shopify → Analytics → Reports, filter by UTM campaign <code>{s.utm_campaign}</code>.
+        Orders are only counted when Shopify can see the visit came from the email (people who block cookies are missed), so the wider view is a useful second number.
       </p>
     </div>
   );
@@ -869,5 +936,38 @@ function QualitySummary({ rows }: { rows: SampleRow[] }) {
         <div>Names to check: {nameIssues.size === 0 ? <b>none</b> : [...nameIssues].map(([k, c]) => `${k} ${c}`).join(' · ')}</div>
       </div>
     </div>
+  );
+}
+
+/* ── Saved versions: every Save is kept and can be loaded back ──────────── */
+function Versions({ onLoad }: { onLoad: (s: VisitEmailSettings) => void }) {
+  const [list, setList] = useState<Array<{ id: number; saved_at: string; saved_by: string; mode: string; style: string; subject: string; opening: string }> | null>(null);
+  const [missing, setMissing] = useState(false);
+  async function open() {
+    try { const r = await api('/api/visit-emails/history'); setList(r.versions); setMissing(!!r.missing); } catch (e) { toast((e as Error).message, 'error'); }
+  }
+  async function loadOne(id: number) {
+    try { onLoad((await api(`/api/visit-emails/history?id=${id}`)).settings); } catch (e) { toast((e as Error).message, 'error'); }
+  }
+  return (
+    <section className={card}>
+      <h2 className="font-semibold">Saved versions</h2>
+      <p className="mt-1 text-xs text-stone-500">Every time you press Save, that version of the settings and copy is kept. Load one to bring it back (then press Save).</p>
+      {!list ? <button className={`${btnGhost} mt-3`} onClick={open}>Show saved versions</button> : missing ? (
+        <p className="mt-2 text-sm text-amber-800">Needs the database update <code>0008_visit_email_settings_history.sql</code> running in Supabase.</p>
+      ) : list.length === 0 ? <p className="mt-2 text-sm text-stone-500">No saved versions yet.</p> : (
+        <ul className="mt-3 divide-y divide-stone-100 text-sm">
+          {list.map((v) => (
+            <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <span className="min-w-0">
+                <b>{when(v.saved_at)}</b>{v.saved_by ? ` · ${v.saved_by}` : ''} · {v.style} · {v.mode}
+                <span className="block truncate text-xs text-stone-500">“{v.subject}” – {v.opening}…</span>
+              </span>
+              <button className={btnGhost} onClick={() => loadOne(v.id)}>Load</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

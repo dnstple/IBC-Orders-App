@@ -141,7 +141,7 @@ export function findLink(s: VisitEmailSettings, key: string): VisitEmailLink | u
 
 const C = { dark: '#4b2a1e', milk: '#f8f2ec', cream: '#f1e7df', ink: '#3a2016', soft: '#6b5245', line: '#e2d4c8' };
 /** Bump when the brand-font images change, so inboxes fetch the new ones. */
-const IMG_V = 1;
+const IMG_V = 2;
 const F = {
   wordmark: "'League Gothic','Oswald','Arial Narrow',Arial,sans-serif",
   display: "'Oswald','Arial Narrow',Arial,sans-serif",
@@ -179,36 +179,68 @@ export function renderEmail(s: VisitEmailSettings, input: RenderInput): Rendered
   const p = (html: string, extra = '') =>
     `<p style="margin:0 0 16px;font-family:${F.body};font-size:16px;line-height:1.6;color:${C.ink}${extra}">${html}</p>`;
 
-  const buttons = links
-    .map((l, i) =>
-      `<tr><td style="padding:${i ? 10 : 4}px 0 0"><a href="${esc(l.trackedUrl)}" style="display:inline-block;background:${i === 0 ? C.dark : '#ffffff'};color:${i === 0 ? C.milk : C.dark};border:1px solid ${C.dark};border-radius:2px;padding:12px 22px;font-family:${F.display};font-weight:500;font-size:14px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none">${esc(l.label)}</a></td></tr>`)
-    .join('');
-
-  const html = `<!doctype html>
+  const wordmarkImg = (on: 'dark' | 'light', width: number) =>
+    `<img src="${esc(base)}/r/img/wordmark?on=${on}&amp;v=${IMG_V}" width="${width}" height="${Math.round(width * 112 / 720)}" alt="Italian Bear Chocolate" style="display:block;border:0;outline:none;max-width:100%;height:auto;color:${on === 'dark' ? C.milk : C.dark};font-family:${F.wordmark};font-size:${on === 'dark' ? 28 : 22}px;letter-spacing:.06em;text-transform:uppercase">`;
+  const taglineImg = (width: number, align: 'center' | 'left') =>
+    `<img src="${esc(base)}/r/img/tagline?t=${encodeURIComponent(tagline)}${align === 'left' ? '&amp;align=left' : ''}&amp;v=${IMG_V}" width="${width}" height="${Math.round(width * 132 / 720)}" alt="${esc(tagline)}" style="display:block;${align === 'center' ? 'margin:0 auto;' : ''}border:0;outline:none;max-width:100%;height:auto;color:${C.dark};font-family:${F.script};font-size:30px">`;
+  const footer = (pad: string) => `<tr><td style="padding:${pad};border-top:1px solid ${C.line};font-family:${F.body};font-size:12px;line-height:1.5;color:${C.soft}">
+Italian Bear Chocolate ${esc(shopInfo?.name ?? '')}${shopInfo ? ', ' + esc(shopInfo.address) : ''}<br>
+You're getting this one-off email because you visited us recently.${optOutUrl ? ` <a href="${esc(optOutUrl)}" style="color:${C.soft}">Don't email me again</a>` : ''}
+</td></tr>`;
+  const head = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light">
 <title>${esc(subject)}</title>
 <link href="${FONTS_URL}" rel="stylesheet">
 <style>strong{font-weight:600}</style>
-</head>
+</head>`;
+  const hidden = `<span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(preheader)}</span>`;
+
+  let html: string;
+  if (s.style === 'letter') {
+    // A short letter: small wordmark, greeting, paragraphs, one simple button, sign-off.
+    const buttons = links
+      .map((l) =>
+        `<tr><td style="padding:2px 0 12px"><a href="${esc(l.trackedUrl)}" style="display:inline-block;background:${C.dark};color:${C.milk};border-radius:2px;padding:11px 20px;font-family:${F.body};font-weight:600;font-size:15px;text-decoration:none">${esc(l.label)}</a></td></tr>`)
+      .join('');
+    html = `${head}
+<body style="margin:0;padding:0;background:${C.milk}">
+${hidden}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.milk}"><tr><td align="center" style="padding:30px 18px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;color:${C.ink}">
+<tr><td style="padding:0 0 26px">${wordmarkImg('light', 220)}</td></tr>
+<tr><td>
+${heading ? p(esc(heading), ';font-size:17px;font-weight:600') : ''}
+${paragraphs.map((x) => p(markupToHtml(x, inlineHtml))).join('\n')}
+${buttons ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 6px">${buttons}</table>` : ''}
+${p(markupToHtml(signoff, inlineHtml), ';margin-top:18px')}
+${tagline ? `<div style="margin:0 0 22px">${taglineImg(260, 'left')}</div>` : ''}
+</td></tr>
+${footer('16px 0 0')}
+</table></td></tr></table>
+</body></html>`;
+  } else {
+    const buttons = links
+      .map((l, i) =>
+        `<tr><td style="padding:${i ? 10 : 4}px 0 0"><a href="${esc(l.trackedUrl)}" style="display:inline-block;background:${i === 0 ? C.dark : '#ffffff'};color:${i === 0 ? C.milk : C.dark};border:1px solid ${C.dark};border-radius:2px;padding:12px 22px;font-family:${F.display};font-weight:500;font-size:14px;letter-spacing:.08em;text-transform:uppercase;text-decoration:none">${esc(l.label)}</a></td></tr>`)
+      .join('');
+    html = `${head}
 <body style="margin:0;padding:0;background:${C.cream}">
-<span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden">${esc(preheader)}</span>
+${hidden}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.cream}"><tr><td align="center" style="padding:28px 14px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:${C.milk};border-radius:2px;color:${C.ink}">
-<tr><td align="center" style="background:${C.dark};padding:18px 28px"><img src="${esc(base)}/r/img/wordmark?v=${IMG_V}" width="360" height="56" alt="Italian Bear Chocolate" style="display:block;margin:0 auto;border:0;outline:none;max-width:100%;height:auto;color:${C.milk};font-family:${F.wordmark};font-size:28px;letter-spacing:.06em;text-transform:uppercase;text-align:center"></td></tr>
+<tr><td align="center" style="background:${C.dark};padding:18px 28px"><div style="width:360px;max-width:100%;margin:0 auto">${wordmarkImg('dark', 360)}</div></td></tr>
 <tr><td style="padding:30px 28px 8px">
 <h1 style="margin:0 0 18px;font-family:${F.display};font-size:26px;font-weight:400;line-height:1.2;letter-spacing:.01em;color:${C.dark}">${esc(heading)}</h1>
 ${paragraphs.map((x) => p(markupToHtml(x, inlineHtml))).join('\n')}
 ${buttons ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 8px">${buttons}</table>` : ''}
 ${p(markupToHtml(signoff, inlineHtml), ';margin-top:22px')}
-${tagline ? `<p style="margin:8px 0 4px;text-align:center"><img src="${esc(base)}/r/img/tagline?t=${encodeURIComponent(tagline)}&amp;v=${IMG_V}" width="360" height="66" alt="${esc(tagline)}" style="display:block;margin:0 auto;border:0;outline:none;max-width:100%;height:auto;color:${C.dark};font-family:${F.script};font-size:34px;text-align:center"></p>` : ''}
+${tagline ? `<div style="margin:8px 0 4px">${taglineImg(360, 'center')}</div>` : ''}
 </td></tr>
-<tr><td style="padding:16px 28px 24px;border-top:1px solid ${C.line};font-family:${F.body};font-size:12px;line-height:1.5;color:${C.soft}">
-Italian Bear Chocolate ${esc(shopInfo?.name ?? '')}${shopInfo ? ', ' + esc(shopInfo.address) : ''}<br>
-You're getting this one-off email because you visited us recently.${optOutUrl ? ` <a href="${esc(optOutUrl)}" style="color:${C.soft}">Don't email me again</a>` : ''}
-</td></tr>
+${footer('16px 28px 24px')}
 </table></td></tr></table>
 </body></html>`;
+  }
 
   const text = [
     heading,

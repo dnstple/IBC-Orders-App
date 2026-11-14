@@ -79,3 +79,10 @@ SIL Open Font License), because Gmail and Outlook ignore web fonts. Change
 4. Opens: Resend → Domains → the domain → turn on open tracking.
 
 Permanent bounces and spam complaints are added to the do-not-email list automatically.
+
+## Styles, saved versions and sales
+
+- **Style**: Letter (default; plain, small name at the top) or Branded (header bar). Both use the same copy boxes.
+- **Saved versions**: run `supabase/migrations/0008_visit_email_settings_history.sql`. Every Save is kept; "Saved versions" on the tab loads any back. Unsaved edits are kept as a draft in the browser and leaving the page asks first.
+- **Sales** (funnel step 5): Shopify orders whose visit carried `utm_campaign` (customerJourneySummary), plus a wider count of orders by emailed guests within 30 days.
+- Code changes never edit the saved settings; new options only add defaults for fields that were never saved.

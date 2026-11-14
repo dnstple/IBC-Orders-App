@@ -23,5 +23,7 @@ export async function POST(req: NextRequest) {
     key: 'visit_emails', value: next, updated_by: gate.staff.id, updated_at: new Date().toISOString(),
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Keep every saved version (needs migration 0008; saving still works without it).
+  await supabaseAdmin().from('visit_email_settings_history').insert({ value: next, saved_by: gate.staff.id }).then(() => {}, () => {});
   return NextResponse.json({ ok: true, settings: next });
 }

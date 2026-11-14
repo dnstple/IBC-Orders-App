@@ -237,7 +237,7 @@ describe('Resend webhook signature', () => {
 describe('brand-font images', () => {
   it('header and closing line are images with readable alt text', () => {
     const e = renderEmail(S(), { token: 't', appUrl: 'https://links.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-11', variant: 'plain' });
-    expect(e.html).toContain('src="https://links.test/r/img/wordmark?v=');
+    expect(e.html).toContain('src="https://links.test/r/img/wordmark?on=light&amp;v=');
     expect(e.html).toContain('alt="Italian Bear Chocolate"');
     expect(e.html).toContain('src="https://links.test/r/img/tagline?t=All%20you%20need%20is%20chocolate');
     expect(e.html).toContain('alt="All you need is chocolate"');
@@ -258,5 +258,27 @@ describe('assume everyone attends (preview only)', () => {
     expect(decideAssumingAttendance({ ...future, status: { id: 5, code: 'no_show', name: 'No Show' } }, S(), ctx()))
       .toEqual({ action: 'skip', reason: 'not_arrived' });
     expect(decideAssumingAttendance({ ...future, marketing: 'no' }, S(), ctx())).toEqual({ action: 'skip', reason: 'marketing_no' });
+  });
+});
+
+describe('styles', () => {
+  const input = { token: 't', appUrl: 'https://links.test', shop: 'soho', firstName: 'Ada', visitDate: '2026-11-11', variant: 'marketing' as const };
+  it('letter is the default: no brown header bar, light wordmark, same copy', () => {
+    const s = S();
+    expect(s.style).toBe('letter');
+    const e = renderEmail(s, input);
+    expect(e.html).toContain('wordmark?on=light');
+    expect(e.html).not.toContain('<h1');
+    expect(e.html).toContain('Thank you for visiting, Ada');
+  });
+  it('branded keeps the header bar and heading', () => {
+    const e = renderEmail(S({ style: 'branded' }), input);
+    expect(e.html).toContain('wordmark?on=dark');
+    expect(e.html).toContain('<h1');
+  });
+  it('saved copy is never replaced by defaults when settings are re-read', () => {
+    const mine = { body_marketing: 'My own words on {visit_day}.', subject: 'My subject', signoff: 'Cheers', tagline: 'Mine' };
+    const s = normaliseSettings({ ...mine, style: 'branded' });
+    expect(normaliseSettings(s)).toMatchObject(mine);
   });
 });

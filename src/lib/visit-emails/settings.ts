@@ -41,6 +41,9 @@ export interface VisitEmailSettings {
   /** Don't send an automatic email if it's more than this many days late (e.g. the poller was down). */
   max_late_days: number;
 
+  /** 'letter' = plain, personal letter (default) · 'branded' = brown header bar, bigger heading and buttons. */
+  style: 'letter' | 'branded';
+
   /** The legal switch. true = only guests who ticked "news and offers" (Marketing = Yes). */
   respect_marketing: boolean;
   /** When sending to everyone: guests without a Yes get the plain email (no shop/booking links). */
@@ -89,6 +92,7 @@ export const DEFAULT_SETTINGS: VisitEmailSettings = {
   send_window_end_hour: 19,
   auto_from_date: '',
   max_late_days: 3,
+  style: 'letter',
   respect_marketing: true,
   plain_for_non_opted_in: true,
   dedupe_days: 180,
@@ -179,6 +183,7 @@ export function normaliseSettings(raw: unknown): VisitEmailSettings {
     send_window_end_hour: end > start ? end : Math.min(start + 1, 24),
     auto_from_date: ymd(r.auto_from_date),
     max_late_days: int(r.max_late_days, d.max_late_days, 1, 30),
+    style: r.style === 'branded' ? 'branded' : 'letter',
     respect_marketing: bool(r.respect_marketing, d.respect_marketing),
     plain_for_non_opted_in: bool(r.plain_for_non_opted_in, d.plain_for_non_opted_in),
     dedupe_days: int(r.dedupe_days, d.dedupe_days, 0, 3650),
