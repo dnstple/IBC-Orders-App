@@ -143,7 +143,7 @@ export async function sendDue(s: VisitEmailSettings, now = new Date()) {
 
   const { data: due } = await db.from('visit_emails').select('*')
     .eq('state', 'queued').lte('due_at', now.toISOString())
-    .order('due_at', { ascending: true }).limit(room);
+    .order('visit_at', { ascending: true }).order('due_at', { ascending: true }).limit(room); // oldest visits first
   if (!due?.length) return out;
 
   const suppressed = await suppressedSet(due.map((r) => r.email));
